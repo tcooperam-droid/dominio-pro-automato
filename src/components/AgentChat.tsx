@@ -252,50 +252,62 @@ export default function AgentChat() {
     persistMessages([welcome]);
   }, []);
 
-  // ── Voice Input (Whisper via /api/stt) ───────────────────
+  // ── Voice Input (Web Speech API — sem backend) ───────────
   const toggleVoice = useCallback(async () => {
     if (isRecording) {
-      mediaRecorderRef.current?.stop();
+      try { (recognitionRef.current as any)?.stop?.(); } catch {}
+      setIsRecording(false);
       return;
     }
+
+    const SR: any =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      alert(
+        "Reconhecimento de voz não suportado neste navegador. Use o ditado nativo do teclado do celular.",
+      );
+      return;
+    }
+
+    // Pede permissão antes (no Android isso evita o aborto silencioso)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/webm")
-          ? "audio/webm"
-          : MediaRecorder.isTypeSupported("audio/mp4")
-            ? "audio/mp4"
-            : "";
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      audioChunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        setIsRecording(false);
-        const blob = new Blob(audioChunksRef.current, { type: mimeType || "audio/webm" });
-        if (blob.size < 1000) return; // muito curto, ignora
-        setIsTranscribing(true);
-        try {
-          const text = await transcribeAudio(blob);
-          setIsTranscribing(false);
-          if (text) {
-            // envia direto
-            void sendMessage(text);
-          }
-        } catch (err) {
-          setIsTranscribing(false);
-          console.error("[STT] erro:", err);
-        }
-      };
-      mediaRecorderRef.current = recorder;
-      recorder.start();
+      const s = await navigator.mediaDevices?.getUserMedia({ audio: true });
+      s?.getTracks().forEach((t) => t.stop());
+    } catch {
+      alert("Não consegui acessar o microfone. Verifique as permissões.");
+      return;
+    }
+
+    const rec = new SR();
+    rec.lang = "pt-BR";
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+
+    rec.onresult = (event: any) => {
+      const transcript = event?.results?.[0]?.[0]?.transcript;
+      if (transcript && String(transcript).trim()) {
+        void sendMessage(String(transcript).trim());
+      }
+    };
+    rec.onerror = (event: any) => {
+      setIsRecording(false);
+      const err = event?.error;
+      if (err === "not-allowed" || err === "service-not-allowed") {
+        alert("Permissão de microfone negada. Libere nas configurações do navegador.");
+      } else if (err && err !== "no-speech" && err !== "aborted") {
+        console.warn("[mic] erro:", err);
+      }
+    };
+    rec.onend = () => setIsRecording(false);
+
+    recognitionRef.current = rec;
+    try {
+      rec.start();
       setIsRecording(true);
     } catch (err) {
-      console.error("[Mic] erro:", err);
-      alert("Não consegui acessar o microfone. Verifique as permissões.");
+      console.error("[mic] falha ao iniciar:", err);
+      setIsRecording(false);
     }
   }, [isRecording, sendMessage]);
 
