@@ -1,12 +1,12 @@
 /**
- * agentMedia.ts — Capacidades multimídia do Agente (versão GitHub Models).
+ * agentMedia.ts — Capacidades multimídia do Agente (versão GitHub Models + Vercel API).
  *
  *   - describeImage  : visão por imagem via GitHub Models (gpt-4o-mini)
+ *   - searchWeb      : pesquisa via /api/search (Vercel serverless function)
  *   - transcribeAudio: voz → texto via Web Speech API do navegador
  *   - speakWithOpenAI: texto → voz via Web Speech API do navegador
- *   - searchWeb      : DESABILITADO (requer servidor próprio)
  *
- * Token: lê import.meta.env.VITE_GITHUB_TOKEN.
+ * Token GitHub: lê import.meta.env.VITE_GITHUB_TOKEN.
  */
 
 const LLM_ENDPOINT = "https://models.github.ai/inference/chat/completions";
@@ -65,7 +65,7 @@ export async function describeImage(
   return data?.choices?.[0]?.message?.content ?? "Não consegui analisar a imagem.";
 }
 
-// ─── Web Search (DESABILITADO em modo standalone) ──────────
+// ─── Web Search (via /api/search serverless da Vercel) ─────
 
 export interface WebResult {
   title: string;
@@ -73,14 +73,89 @@ export interface WebResult {
   snippet: string;
 }
 
-export async function searchWeb(_query: string, _limit = 5): Promise<WebResult[]> {
-  throw new Error(
-    "Pesquisa na internet desabilitada. Esta funcionalidade requer um servidor backend.",
-  );
+export async function searchWeb(query: string, limit = 5): Promise<WebResult[]> {
+  const q = query.trim();
+  if (!q) return [];
+
+  const res = await fetch("/api/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: q, limit }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`Falha na pesquisa: ${res.status} ${err}`);
+  }
+
+  const data = await res.json();
+  return Array.isArray(data?.results) ? (data.results as WebResult[]) : [];
 }
 
-export async function searchAndSummarize(_query: string): Promise<string> {
-  return "🌐 A pesquisa na internet não está disponível nesta versão (requer servidor backend próprio).";
+export async function searchAndSummarize(query: string): Promise<string> {
+  const q = query.trim();
+  if (!q) return "Digite o que pesquisar.";
+
+  let results: WebResult[];
+  try {
+    results = await searchWeb(q, 5);
+  } catch (err) {
+    const m = err instanceof Error ? err.message : String(err);
+    return `🌐 Não consegui pesquisar: ${m}`;
+  }
+
+  if (results.length === 0) {
+    return `🌐 Nenhum resultado encontrado para "${q}".`;
+  }
+
+  // Monta contexto e pede resumo ao LLM
+  const context = results
+    .map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.snippet}`)
+    .join("\n\n");
+
+  try {
+    const res = await fetch(LLM_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getToken()}`,
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-4o-mini",
+        max_tokens: 600,
+        temperature: 0.4,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Você resume resultados de busca da web em português brasileiro. Seja claro, objetivo e cite as fontes usando [1], [2] etc. Termine listando as fontes.",
+          },
+          {
+            role: "user",
+            content: `Pergunta: ${q}\n\nResultados:\n\n${context}\n\nResponda à pergunta usando os resultados acima e cite as fontes.`,
+          },
+        ],
+      }),
+    });
+
+    if (!res.ok) {
+      // fallback: lista os resultados crus
+      const list = results
+        .map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`)
+        .join("\n\n");
+      return `🌐 Resultados para "${q}":\n\n${list}`;
+    }
+
+    const data = await res.json();
+    const summary = data?.choices?.[0]?.message?.content ?? "";
+    const sources = results.map((r, i) => `[${i + 1}] ${r.url}`).join("\n");
+    return `${summary}\n\n📎 Fontes:\n${sources}`;
+  } catch {
+    const list = results
+      .map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`)
+      .join("\n\n");
+    return `🌐 Resultados para "${q}":\n\n${list}`;
+  }
 }
 
 // ─── STT (voz → texto via Web Speech API) ──────────────────
