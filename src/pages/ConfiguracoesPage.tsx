@@ -12,11 +12,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Settings, Building2, Clock, Bell, Palette, Save, ImagePlus, Trash2, Scissors, Monitor, Zap, Shield, Eye, EyeOff, Wrench } from "lucide-react";
+import { Settings, Building2, Clock, Bell, Palette, Save, ImagePlus, Trash2, Scissors, Monitor, Zap, Shield, Eye, EyeOff, Wrench, Percent } from "lucide-react";
 import { employeesStore } from "@/lib/store";
 import { applyAccentColor } from "@/contexts/ThemeContext";
 
 type BgType = "default" | "solid" | "gradient" | "image";
+
+type CommissionMode = "cost_first" | "commission_first";
 
 interface SalonConfig {
   salonName: string;
@@ -28,6 +30,7 @@ interface SalonConfig {
   slotDuration: number;
   notifyEmail: boolean;
   autoOpenCash: boolean;
+  commissionMode: CommissionMode;
   accentColor: string;
   themeId: string;
   logoUrl: string;
@@ -49,6 +52,7 @@ const DEFAULT_CONFIG: SalonConfig = {
   slotDuration: 30,
   notifyEmail: false,
   autoOpenCash: true,
+  commissionMode: "cost_first",
   accentColor: "#ec4899",
   themeId: "rosa-neon",
   logoUrl: "",
@@ -287,6 +291,79 @@ export default function ConfiguracoesPage() {
               <p className="text-xs text-muted-foreground">Enviar confirmações por e-mail (requer integração SMTP)</p>
             </div>
             <Switch checked={config.notifyEmail} onCheckedChange={v => updateConfig("notifyEmail", v)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Cálculo de Comissão */}
+      <Card className="border-border bg-card/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Percent className="w-4 h-4 text-primary" />Cálculo de Comissão
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <p className="text-sm font-medium mb-1">Como descontar o custo do material?</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              Escolha em qual ordem o sistema deve calcular a comissão e o custo do material/serviço.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => updateConfig("commissionMode", "cost_first")}
+                className={`text-left p-4 rounded-lg border-2 transition-all ${
+                  config.commissionMode === "cost_first"
+                    ? "border-primary bg-primary/10"
+                    : "border-border bg-background/40 hover:border-primary/50"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold">Custo primeiro</span>
+                  {config.commissionMode === "cost_first" && (
+                    <span className="text-[10px] uppercase tracking-wider bg-primary text-primary-foreground px-2 py-0.5 rounded">
+                      Ativo
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Tira o custo do bruto, depois calcula a comissão sobre o que sobrou.
+                </p>
+                <code className="text-[11px] text-muted-foreground/80 block">
+                  comissão = (valor − custo) × %
+                </code>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => updateConfig("commissionMode", "commission_first")}
+                className={`text-left p-4 rounded-lg border-2 transition-all ${
+                  config.commissionMode === "commission_first"
+                    ? "border-primary bg-primary/10"
+                    : "border-border bg-background/40 hover:border-primary/50"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold">Comissão primeiro</span>
+                  {config.commissionMode === "commission_first" && (
+                    <span className="text-[10px] uppercase tracking-wider bg-primary text-primary-foreground px-2 py-0.5 rounded">
+                      Ativo
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Calcula a comissão sobre o bruto. O custo sai depois, do líquido do salão.
+                </p>
+                <code className="text-[11px] text-muted-foreground/80 block">
+                  comissão = valor × %
+                </code>
+              </button>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground mt-3">
+              Esta configuração só afeta novos lançamentos. Lançamentos antigos mantêm o cálculo original.
+            </p>
           </div>
         </CardContent>
       </Card>

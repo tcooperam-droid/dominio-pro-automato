@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import {
   appointmentsStore, employeesStore, cashSessionsStore, cashEntriesStore,
+  calcCommission,
   type Appointment, type Employee, type CashEntry,
 } from "@/lib/store";
 
@@ -316,8 +317,7 @@ export default function CaixaPage() {
         const amount            = toNum(appt.totalPrice);
         const materialCostValue = (appt.services ?? []).reduce((s, sv) =>
           s + ((sv.price ?? 0) * (sv.materialCostPercent ?? 0) / 100), 0);
-        const baseForCommission = Math.max(0, amount - materialCostValue);
-        const commissionValue   = baseForCommission * (emp.commissionPercent / 100);
+        const commissionValue   = calcCommission(amount, materialCostValue, emp.commissionPercent);
         const services          = (appt.services ?? []).map(s => s.name).join(", ") || "Serviço";
 
         await cashEntriesStore.create({

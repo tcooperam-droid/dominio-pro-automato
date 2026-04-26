@@ -6,6 +6,39 @@
 
 import { supabase } from "./supabase";
 
+// ─── Comissão / Custo ────────────────────────────────────
+// Modo de cálculo da comissão (lê do salon_config no localStorage):
+//   "cost_first"       → desconta o custo ANTES de calcular a comissão
+//                        comissão = (valor − custo) × %
+//   "commission_first" → calcula a comissão sobre o valor BRUTO
+//                        comissão = valor × % (custo sai depois, do líquido do salão)
+export type CommissionMode = "cost_first" | "commission_first";
+
+export function getCommissionMode(): CommissionMode {
+  try {
+    const s = localStorage.getItem("salon_config");
+    if (s) {
+      const m = JSON.parse(s).commissionMode;
+      if (m === "commission_first" || m === "cost_first") return m;
+    }
+  } catch {}
+  return "cost_first";
+}
+
+export function calcCommission(
+  amount: number,
+  materialCostValue: number,
+  commissionPct: number,
+  mode: CommissionMode = getCommissionMode(),
+): number {
+  if (mode === "commission_first") {
+    return amount * (commissionPct / 100);
+  }
+  // cost_first (padrão)
+  const base = Math.max(0, amount - materialCostValue);
+  return base * (commissionPct / 100);
+}
+
 // ─── Tipos ───────────────────────────────────────────────
 
 export interface Employee {
@@ -800,8 +833,7 @@ async function autoLaunchCashEntry(appt: Appointment): Promise<void> {
     const costPct  = s.materialCostPercent ?? 0;
     return sum + (svcPrice * costPct / 100);
   }, 0);
-  const baseForCommission = Math.max(0, amount - materialCostValue);
-  const commissionValue = baseForCommission * (emp.commissionPercent / 100);
+  const commissionValue = calcCommission(amount, materialCostValue, emp.commissionPercent);
   const services = (appt.services ?? []).map(s => s.name).join(", ") || "Serviço";
 
   await cashEntriesStore.create({
