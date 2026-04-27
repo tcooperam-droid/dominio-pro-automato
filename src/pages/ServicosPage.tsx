@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, Scissors, Clock, DollarSign } from "lucide-react";
 import { servicesStore, type Service } from "@/lib/store";
 
@@ -165,10 +166,25 @@ export default function ServicosPage() {
               </div>
             </div>
             <div className="space-y-1">
-              <Label>Custo de material (%)
-                <span className="ml-1 text-xs text-muted-foreground font-normal">— descontado antes da comissão</span>
-              </Label>
+              <Label>Custo de material (%)</Label>
               <Input type="number" min="0" max="100" step="0.5" value={form.materialCostPercent} onChange={e => setForm(p => ({ ...p, materialCostPercent: e.target.value }))} placeholder="0" />
+            </div>
+            <div className="space-y-1">
+              <Label>Regra de Comissão</Label>
+              <Select value={form.commissionMode} onValueChange={(v: any) => setForm(p => ({ ...p, commissionMode: v }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a regra" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cost_first">Compartilhar Custos (Preço - Custo) × %</SelectItem>
+                  <SelectItem value="commission_first">Custo apenas Salão (Preço × %) - Custo</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {form.commissionMode === "cost_first" 
+                  ? "O custo de material é deduzido do valor total antes de calcular a comissão do profissional."
+                  : "A comissão é calculada sobre o valor bruto. O custo de material é pago integralmente pelo salão."}
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Cor</Label>
@@ -198,3 +214,4 @@ export default function ServicosPage() {
     </div>
   );
 }
+
