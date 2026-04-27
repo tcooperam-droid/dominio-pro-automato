@@ -61,8 +61,18 @@ export function calcMaterialCost(appt: Appointment): number {
 }
 
 export function calcCommission(appt: Appointment, emp: Employee): number {
-  const base = Math.max(0, toNum(appt.totalPrice) - calcMaterialCost(appt));
-  return base * (emp.commissionPercent / 100);
+  return (appt.services ?? []).reduce((sum, s) => {
+    const price = toNum(s.price);
+    const matCost = price * (toNum(s.materialCostPercent) / 100);
+    const mode = s.commissionMode ?? "cost_first";
+    
+    if (mode === "commission_first") {
+      return sum + (price * (emp.commissionPercent / 100));
+    }
+    // cost_first
+    const base = Math.max(0, price - matCost);
+    return sum + (base * (emp.commissionPercent / 100));
+  }, 0);
 }
 
 export interface PeriodStats {
@@ -139,7 +149,7 @@ export function calcRevenueByEmployee(appts: Appointment[], employees: Employee[
     const empAppts = appts.filter(a => a.employeeId === emp.id).filter(isValid);
     const revenue  = empAppts.reduce((s, a) => s + toNum(a.totalPrice), 0);
     const material = empAppts.reduce((s, a) => s + calcMaterialCost(a), 0);
-    const commission = revenue > 0 ? revenue * (emp.commissionPercent / 100) : 0;
+    const commission = empAppts.reduce((s, a) => s + calcCommission(a, emp), 0);
     return {
       id:         emp.id,
       name:       emp.name,
