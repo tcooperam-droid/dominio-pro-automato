@@ -14,22 +14,13 @@ import { supabase } from "./supabase";
 //                        comissão = valor × % (custo sai depois, do líquido do salão)
 export type CommissionMode = "cost_first" | "commission_first";
 
-export function getCommissionMode(): CommissionMode {
-  try {
-    const s = localStorage.getItem("salon_config");
-    if (s) {
-      const m = JSON.parse(s).commissionMode;
-      if (m === "commission_first" || m === "cost_first") return m;
-    }
-  } catch {}
-  return "cost_first";
-}
+
 
 export function calcCommission(
   amount: number,
   materialCostValue: number,
   commissionPct: number,
-  mode: CommissionMode = getCommissionMode(),
+  mode: CommissionMode = "cost_first",
 ): number {
   if (mode === "commission_first") {
     return amount * (commissionPct / 100);
@@ -62,6 +53,7 @@ export interface Service {
   durationMinutes: number;
   price: number;
   materialCostPercent: number;
+  commissionMode: CommissionMode;
   color: string;
   active: boolean;
   createdAt: string;
@@ -86,6 +78,7 @@ export interface AppointmentService {
   durationMinutes: number;
   color: string;
   materialCostPercent: number;
+  commissionMode: CommissionMode;
 }
 
 export interface Appointment {
@@ -220,7 +213,18 @@ function toEmployee(r: any): Employee {
   return { id: r.id, name: r.name, email: r.email ?? "", phone: r.phone ?? "", color: r.color ?? "#ec4899", photoUrl: r.photo_url ?? null, specialties: r.specialties ?? [], commissionPercent: Number(r.commission_percent ?? 0), workingHours: r.working_hours ?? {}, active: r.active ?? true, createdAt: r.created_at };
 }
 function toService(r: any): Service {
-  return { id: r.id, name: r.name, description: r.description ?? null, durationMinutes: r.duration_minutes ?? 60, price: Number(r.price ?? 0), materialCostPercent: Number(r.material_cost_percent ?? 0), color: r.color ?? "#ec4899", active: r.active ?? true, createdAt: r.created_at };
+  return { 
+    id: r.id, 
+    name: r.name, 
+    description: r.description ?? null, 
+    durationMinutes: r.duration_minutes ?? 60, 
+    price: Number(r.price ?? 0), 
+    materialCostPercent: Number(r.material_cost_percent ?? 0), 
+    commissionMode: r.commission_mode ?? "cost_first",
+    color: r.color ?? "#ec4899", 
+    active: r.active ?? true, 
+    createdAt: r.created_at 
+  };
 }
 function toClient(r: any): Client {
   return { id: r.id, name: r.name, email: r.email ?? null, phone: r.phone ?? null, birthDate: r.birth_date ?? null, cpf: r.cpf ?? null, address: r.address ?? null, notes: r.notes ?? null, createdAt: r.created_at };
@@ -346,11 +350,9 @@ export const servicesStore = {
   async fetchAll(): Promise<Service[]> {
     const data = await fetchAllFromTable("services", "id");
     cache.services = data.map(toService);
-    return cache.services;
-  },
-  async create(data: Omit<Service, "id" | "createdAt">): Promise<Service> {
-    const { data: row, error } = await supabase.from("services").insert({ name: data.name, description: data.description, duration_minutes: data.durationMinutes, price: data.price, material_cost_percent: data.materialCostPercent ?? 0, color: data.color, active: data.active }).select().single();
-    if (error) throw error;
+    r  async create(data: Omit<Service, "id" | "createdAt">): Promise<Service> {
+    logDb("services.create:start", data);
+    const { data: row, error } = await supabase.from("services").insert({ name: data.name, description: data.description, duration_minutes: data.durationMinutes, price: data.price, material_cost_percent: data.materialCostPercent, commission_mode: data.commissionMode, color: data.color, active: data.active }).select().single();rror) throw error;
     const svc = toService(row);
     cache.services.push(svc);
     await addAuditLog("service", svc.id, "create", `Serviço "${svc.name}" criado`);
@@ -363,6 +365,7 @@ export const servicesStore = {
     if (data.durationMinutes !== undefined) p.duration_minutes = data.durationMinutes;
     if (data.price !== undefined) p.price = data.price;
     if (data.materialCostPercent !== undefined) p.material_cost_percent = data.materialCostPercent;
+    if (data.commissionMode !== undefined) p.commission_mode = data.commissionMode;
     if (data.color !== undefined) p.color = data.color;
     if (data.active !== undefined) p.active = data.active;
     const { data: row, error } = await supabase.from("services").update(p).eq("id", id).select().single();
@@ -828,12 +831,18 @@ async function autoLaunchCashEntry(appt: Appointment): Promise<void> {
   if (!emp) return;
 
   const amount = toNum(appt.totalPrice);
-  const materialCostValue = (appt.services ?? []).reduce((sum, s) => {
-    const svcPrice = s.price ?? 0;
-    const costPct  = s.materialCostPercent ?? 0;
-    return sum + (svcPrice * costPct / 100);
-  }, 0);
-  const commissionValue = calcCommission(amount, materialCostValue, emp.commissionPercent);
+  let totalCommission = 0;
+  let totalMaterialCost = 0;
+
+  (appt.services ?? []).forEach(s => {
+    const svcPrice = toNum(s.price);
+    const matCost = svcPrice * (toNum(s.materialCostPercent) / 100);
+    totalMaterialCost += matCost;
+    totalCommission += calcCommission(svcPrice, matCost, emp.commissionPercent, s.commissionMode);
+  });
+
+  const commissionValue = totalCommission;
+  const materialCostValue = totalMaterialCost;
   const services = (appt.services ?? []).map(s => s.name).join(", ") || "Serviço";
 
   await cashEntriesStore.create({
@@ -965,4 +974,5 @@ export async function fetchDashboardData(): Promise<{ clientCount: number }> {
   const clientCount = countResult.count ?? (cache as any).clients.length;
   return { clientCount };
 }
+
 
