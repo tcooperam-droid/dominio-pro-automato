@@ -41,6 +41,7 @@ interface SelectedService {
   durationMinutes: number;
   color: string;
   materialCostPercent: number;
+  commissionMode: "cost_first" | "commission_first";
 }
 
 interface AppointmentModalProps {
@@ -157,6 +158,7 @@ export default function AppointmentModal({
             durationMinutes: svc?.durationMinutes ?? s.durationMinutes ?? 60,
             color: svc?.color ?? s.color ?? "#ec4899",
             materialCostPercent: svc?.materialCostPercent ?? s.materialCostPercent ?? 0,
+            commissionMode: svc?.commissionMode ?? s.commissionMode ?? "cost_first",
           };
         }));
       } else {
@@ -192,6 +194,7 @@ export default function AppointmentModal({
       durationMinutes: svc.durationMinutes,
       color: svc.color,
       materialCostPercent: svc.materialCostPercent ?? 0,
+      commissionMode: svc.commissionMode ?? "cost_first",
     }]);
   };
 
@@ -221,6 +224,7 @@ export default function AppointmentModal({
         durationMinutes: s.durationMinutes,
         color: s.color,
         materialCostPercent: s.materialCostPercent ?? 0,
+        commissionMode: s.commissionMode ?? "cost_first",
       })),
     };
   };
@@ -265,6 +269,7 @@ export default function AppointmentModal({
           durationMinutes: s.durationMinutes,
           color: s.color,
           materialCostPercent: s.materialCostPercent ?? 0,
+          commissionMode: s.commissionMode ?? "cost_first",
         })));
         toast.success("Últimos serviços agendados carregados automaticamente!");
       }
