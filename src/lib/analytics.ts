@@ -359,7 +359,7 @@ export function calcWeeklyRevenue(
 /** Clientes inativos há mais de N dias sem agendamento futuro */
 export function calcInactiveClients(
   appts: Appointment[],
-  inactiveDays = 45,
+  inactiveDays = 70,
 ): { clientId: number | null; clientName: string; lastVisit: string; daysSince: number }[] {
   const now = new Date();
   const threshold = subDays(now, inactiveDays);
