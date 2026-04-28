@@ -146,7 +146,7 @@ export default function FinanceiroDashboardPage() {
   }, [futureAppts, convRate]);
 
   // ── Alertas ───────────────────────────────────────────────
-  const inactiveClients = useMemo(() => calcInactiveClients(pastAppts, 45), [pastAppts]);
+  const inactiveClients = useMemo(() => calcInactiveClients(pastAppts, 70), [pastAppts]);
 
   const overdueExpenses = useMemo(() =>
     allExpenses.filter(e => e.status === "pendente" && e.date < todayStr),
@@ -211,7 +211,7 @@ export default function FinanceiroDashboardPage() {
             <div className="flex items-center gap-3">
               <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
               <p className="text-sm text-red-400">
-                {inactiveClients.length} cliente(s) sem visita há mais de 45 dias
+                {inactiveClients.length} cliente(s) sem visita há mais de 70 dias
               </p>
             </div>
             <ChevronRight className={`w-4 h-4 text-red-400 transition-transform ${showInactive ? "rotate-90" : ""}`} />
@@ -300,12 +300,20 @@ export default function FinanceiroDashboardPage() {
               {margem.toFixed(1)}%
             </span>
           </div>
+          <div className="mt-2 flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              Despesas do período: <span className="font-medium">{PERIOD_TABS.find(t => t.value === selectedPeriod)?.label}</span>
+            </p>
+            <button className="text-xs underline" style={{ color: accent }} onClick={() => setLocation("/despesas")}>
+              Gerenciar →
+            </button>
+          </div>
           {totalExpenses === 0 && (
-            <div className="mt-3 p-3 rounded-lg flex items-center gap-2"
+            <div className="mt-2 p-3 rounded-lg flex items-center gap-2"
               style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
               <Info className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <p className="text-xs text-muted-foreground">
-                Sem despesas cadastradas neste período.{" "}
+                Sem despesas pagas neste período.{" "}
                 <button className="underline" style={{ color: accent }} onClick={() => setLocation("/despesas")}>
                   Cadastrar despesas →
                 </button>
