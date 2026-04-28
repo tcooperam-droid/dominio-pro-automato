@@ -1,13 +1,9 @@
 /**
  * analytics.ts — Fonte única de verdade para cálculos financeiros.
  * Todos os dados derivam dos agendamentos (appointments).
- * Regras:
- *  - Conta tudo exceto cancelled e no_show
- *  - Custo de material deduzido antes da comissão
- *  - Consistente em Dashboard, Caixa e Relatórios
  */
-import { appointmentsStore, employeesStore, type Appointment, type Employee } from "./store";
-import { format, isWithinInterval, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subDays, addDays } from "date-fns";
+import { appointmentsStore, type Appointment, type Employee } from "./store";
+import { format, isWithinInterval, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subDays, differenceInDays } from "date-fns";
 
 export const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
 
@@ -84,7 +80,7 @@ export interface PeriodStats {
   avgTicket:         number;
   cancelCount:       number;
   cancelRate:        number;
-  scheduledRevenue:  number; // agendados futuros (projeção)
+  scheduledRevenue:  number;
   scheduledCount:    number;
 }
 
@@ -178,4 +174,113 @@ export function calcPopularServices(appts: Appointment[]) {
     });
   });
   return Object.values(counts).sort((a, b) => b.count - a.count);
+}
+
+// --- Novas funções solicitadas ---
+
+export function calcTopClients(appts: Appointment[], limit = 10) {
+  const valid = appts.filter(isValid);
+  const groups: Record<string, { clientId: number | null; clientName: string; totalSpent: number; visitCount: number; lastVisit: string }> = {};
+
+  valid.forEach(a => {
+    const key = a.clientId ? String(a.clientId) : (a.clientName || "Desconhecido");
+    if (!groups[key]) {
+      groups[key] = {
+        clientId: a.clientId,
+        clientName: a.clientName || "Desconhecido",
+        totalSpent: 0,
+        visitCount: 0,
+        lastVisit: a.startTime
+      };
+    }
+    groups[key].totalSpent += toNum(a.totalPrice);
+    groups[key].visitCount += 1;
+    if (new Date(a.startTime) > new Date(groups[key].lastVisit)) {
+      groups[key].lastVisit = a.startTime;
+    }
+  });
+
+  return Object.values(groups)
+    .map(g => ({ ...g, avgTicket: g.totalSpent / g.visitCount }))
+    .sort((a, b) => b.totalSpent - a.totalSpent)
+    .slice(0, limit);
+}
+
+export function calcConversionRate(appts: Appointment[]): number {
+  const now = new Date();
+  const past = appts.filter(a => new Date(a.startTime) <= now);
+  if (past.length === 0) return 100;
+  
+  const completed = past.filter(a => a.status === "completed").length;
+  const lost = past.filter(a => ["cancelled", "no_show"].includes(a.status)).length;
+  
+  if (completed + lost === 0) return 100;
+  return (completed / (completed + lost)) * 100;
+}
+
+export function calcClientReturnFrequency(appts: Appointment[]): number | null {
+  const valid = appts.filter(isValid).sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  if (valid.length < 2) return null;
+
+  let totalDays = 0;
+  let count = 0;
+
+  for (let i = 1; i < valid.length; i++) {
+    const diff = differenceInDays(parseISO(valid[i].startTime), parseISO(valid[i-1].startTime));
+    if (diff > 0) {
+      totalDays += diff;
+      count++;
+    }
+  }
+
+  return count > 0 ? totalDays / count : null;
+}
+
+export function calcMostProfitableServices(appts: Appointment[]) {
+  const valid = appts.filter(isValid);
+  const counts: Record<number, { serviceId: number; name: string; count: number; revenue: number; materialCost: number; color: string }> = {};
+
+  valid.forEach(a => {
+    (a.services ?? []).forEach(s => {
+      if (!counts[s.serviceId]) {
+        counts[s.serviceId] = { serviceId: s.serviceId, name: s.name, count: 0, revenue: 0, materialCost: 0, color: s.color ?? "#ec4899" };
+      }
+      const price = toNum(s.price);
+      const cost = price * (toNum(s.materialCostPercent) / 100);
+      counts[s.serviceId].count++;
+      counts[s.serviceId].revenue += price;
+      counts[s.serviceId].materialCost += cost;
+    });
+  });
+
+  return Object.values(counts)
+    .map(s => ({
+      ...s,
+      margin: s.revenue > 0 ? ((s.revenue - s.materialCost) / s.revenue) * 100 : 0
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+}
+
+export function calcWeeklyRevenue(appts: Appointment[], weeks: number) {
+  const result: { weekLabel: string; revenue: number; count: number }[] = [];
+  const now = new Date();
+
+  for (let i = weeks - 1; i >= 0; i--) {
+    const start = startOfWeek(subDays(now, i * 7), { weekStartsOn: 1 });
+    const end = endOfWeek(start, { weekStartsOn: 1 });
+    
+    const weekAppts = appts.filter(a => {
+      try {
+        const d = parseISO(a.startTime);
+        return isWithinInterval(d, { start, end });
+      } catch { return false; }
+    }).filter(isValid);
+
+    result.push({
+      weekLabel: `Semana ${format(start, "dd/MM")}`,
+      revenue: weekAppts.reduce((s, a) => s + toNum(a.totalPrice), 0),
+      count: weekAppts.length
+    });
+  }
+  return result;
 }
