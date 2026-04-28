@@ -233,7 +233,7 @@ export default function FinanceiroDashboardPage() {
         <div className="overflow-x-auto pb-2">
           <div className="flex gap-3" style={{ minWidth: "max-content" }}>
             {multiPeriodStats.map(({ period, label, revenue, count, avgTicket }) => (
-              <div key={period} style={{ ...cardStyle, minWidth: 160 }}
+              <div key={period}
                 className={`cursor-pointer transition-all ${selectedPeriod === period ? "ring-2" : ""}`}
                 style={{
                   ...cardStyle,
