@@ -18,8 +18,11 @@ import HistoricoAgendamentosPage from "./pages/HistoricoAgendamentosPage";
 import BackupPage from "./pages/BackupPage";
 import ConfiguracoesPage from "./pages/ConfiguracoesPage";
 import FerramentasClientesPage from "./pages/FerramentasClientesPage";
+import DespesasPage from "./pages/DespesasPage";
+import ComissoesPage from "./pages/ComissoesPage";
+import FinanceiroDashboardPage from "./pages/FinanceiroDashboardPage";
 import { useState, useEffect } from "react";
-import { getSession, getDefaultRoute, type Session } from "./lib/access";
+import { getSession, getDefaultRoute } from "./lib/access";
 import ProfileSelector from "./components/ProfileSelector";
 import AgentChat from "./components/AgentChat";
 
@@ -27,14 +30,6 @@ import { fetchAllData } from "./lib/store";
 
 // --- IMPORTAÇÃO DO AGENTE ---
 import { initAgentV2 } from "./lib/agentV2";
-
-function getAccent() {
-  try {
-    const s = localStorage.getItem("salon_config");
-    if (s) return JSON.parse(s).accentColor || "#ec4899";
-  } catch { /* ignore */ }
-  return "#ec4899";
-}
 
 function AppContent() {
   const [, setLocation] = useLocation();
@@ -96,6 +91,9 @@ function AppContent() {
               <Route path="/funcionarios" component={FuncionariosPage} />
               <Route path="/servicos" component={ServicosPage} />
               <Route path="/caixa" component={CaixaPage} />
+              <Route path="/financeiro" component={FinanceiroDashboardPage} />
+              <Route path="/despesas" component={DespesasPage} />
+              <Route path="/comissoes" component={ComissoesPage} />
               <Route path="/dashboard-caixa" component={DashboardCaixaPage} />
               <Route path="/relatorios" component={RelatoriosPage} />
               <Route path="/historico" component={HistoricoPage} />
