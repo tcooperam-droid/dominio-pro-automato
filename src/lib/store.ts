@@ -132,6 +132,31 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export interface Expense {
+  id: number;
+  date: string;         // 'yyyy-MM-dd'
+  category: string;
+  description: string;
+  amount: number;
+  status: "paga" | "pendente" | "atrasada";
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface CommissionClosing {
+  id: number;
+  employeeId: number;
+  periodStart: string;
+  periodEnd: string;
+  totalRevenue: number;
+  totalCommission: number;
+  appointmentCount: number;
+  status: "pendente" | "paga";
+  paidAt: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
 // ─── Helpers ───────────────────────────────────────────────
 
 const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
@@ -321,6 +346,35 @@ function toAuditLog(r: any): AuditLog {
   };
 }
 
+function toExpense(r: any): Expense {
+  return {
+    id: r.id,
+    date: r.date,
+    category: r.category,
+    description: r.description,
+    amount: Number(r.amount),
+    status: r.status,
+    notes: r.notes ?? null,
+    createdAt: r.created_at,
+  };
+}
+
+function toCommissionClosing(r: any): CommissionClosing {
+  return {
+    id: r.id,
+    employeeId: Number(r.employee_id),
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
+    totalRevenue: Number(r.total_revenue),
+    totalCommission: Number(r.total_commission),
+    appointmentCount: Number(r.appointment_count),
+    status: r.status,
+    paidAt: r.paid_at ?? null,
+    notes: r.notes ?? null,
+    createdAt: r.created_at,
+  };
+}
+
 // ─── Cache em memória ─────────────────────────────────────
 
 const cache = {
@@ -331,6 +385,8 @@ const cache = {
   cashSessions: [] as CashSession[],
   cashEntries: [] as CashEntry[],
   auditLogs: [] as AuditLog[],
+  expenses: [] as Expense[],
+  commissionClosings: [] as CommissionClosing[],
 };
 
 async function addAuditLog(
@@ -593,9 +649,7 @@ export const clientsStore = {
     return count ?? 0;
   },
 
-  /** Busca clientes diretamente no Supabase sem depender de carregar a lista inteira.
-   *  Estratégia híbrida: wildcard + prefixo + score local (fuzzy/phonetic).
-   */
+  /** Busca clientes por nome, telefone ou email. */
   async search(query: string, options?: { limit?: number }): Promise<Client[]> {
     const q = query.trim();
     const limit = options?.limit ?? 20;
@@ -1242,13 +1296,9 @@ export const cashEntriesStore = {
 
   async update(id: number, data: Partial<CashEntry>): Promise<CashEntry | null> {
     const p: any = {};
-
-    if (data.clientName !== undefined) p.client_name = data.clientName;
     if (data.description !== undefined) p.description = data.description;
     if (data.amount !== undefined) p.amount = data.amount;
     if (data.paymentMethod !== undefined) p.payment_method = data.paymentMethod;
-    if (data.commissionPercent !== undefined) p.commission_percent = data.commissionPercent;
-    if (data.commissionValue !== undefined) p.commission_value = data.commissionValue;
 
     const { data: row, error } = await supabase
       .from("cash_entries")
@@ -1261,7 +1311,6 @@ export const cashEntriesStore = {
 
     const entry = toCashEntry(row);
     const idx = cache.cashEntries.findIndex(e => e.id === id);
-
     if (idx !== -1) cache.cashEntries[idx] = entry;
 
     return entry;
@@ -1269,132 +1318,150 @@ export const cashEntriesStore = {
 
   async delete(id: number): Promise<void> {
     await supabase.from("cash_entries").delete().eq("id", id);
-
     cache.cashEntries = cache.cashEntries.filter(e => e.id !== id);
-
-    await addAuditLog("cash_entry", id, "delete", `Lançamento #${id} removido`);
-  },
-
-  async deleteBySession(sessionId: number): Promise<void> {
-    await supabase.from("cash_entries").delete().eq("session_id", sessionId);
-
-    cache.cashEntries = cache.cashEntries.filter(e => e.sessionId !== sessionId);
-  },
-
-  async deleteByAppointment(appointmentId: number): Promise<void> {
-    await supabase.from("cash_entries").delete().eq("appointment_id", appointmentId);
-
-    cache.cashEntries = cache.cashEntries.filter(e => e.appointmentId !== appointmentId);
   },
 };
 
-// ─── Auto-Launch Cash Entry ──────────────────────────────────
+// ─── Expenses ────────────────────────────────────────────
 
-async function autoLaunchCashEntry(appt: Appointment): Promise<void> {
-  const currentSession = cache.cashSessions.find(s => s.status === "open");
-
-  if (!currentSession) return;
-
-  const sessionDate = currentSession.openedAt.slice(0, 10);
-  const apptDate = appt.startTime.slice(0, 10);
-
-  if (apptDate < sessionDate) return;
-
-  const existing = cache.cashEntries.find(e => e.appointmentId === appt.id);
-
-  if (existing) return;
-
-  const emp = cache.employees.find(e => e.id === appt.employeeId);
-
-  if (!emp) return;
-
-  const amount = toNum(appt.totalPrice);
-  let totalCommission = 0;
-  let totalMaterialCost = 0;
-
-  (appt.services ?? []).forEach(s => {
-    const svcPrice = toNum(s.price);
-    const matCost = svcPrice * (toNum(s.materialCostPercent) / 100);
-
-    totalMaterialCost += matCost;
-    totalCommission += calcCommission(svcPrice, matCost, emp.commissionPercent, s.commissionMode);
-  });
-
-  const commissionValue = totalCommission;
-  const materialCostValue = totalMaterialCost;
-  const services = (appt.services ?? []).map(s => s.name).join(", ") || "Serviço";
-
-  await cashEntriesStore.create({
-    sessionId: currentSession.id,
-    appointmentId: appt.id,
-    clientName: appt.clientName ?? "Cliente",
-    employeeId: emp.id,
-    description: services,
-    amount,
-    paymentMethod: "dinheiro",
-    commissionPercent: emp.commissionPercent,
-    commissionValue,
-    materialCostValue,
-    isAutoLaunch: true,
-  });
-
-  await appointmentsStore.update(appt.id, { paymentStatus: "paid" });
-
-  window.dispatchEvent(new Event("cash_entry_auto_launched"));
-}
-
-// ─── Audit Log ───────────────────────────────────────────
-
-export const auditStore = {
-  log(entityType?: string): AuditLog[] {
-    const all = [...cache.auditLogs];
-    const filtered = entityType ? all.filter(l => l.entityType === entityType) : all;
-
-    return filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export const expensesStore = {
+  list(filters?: { startDate?: string; endDate?: string; category?: string; status?: string }): Expense[] {
+    let list = [...cache.expenses];
+    if (filters?.startDate) list = list.filter(e => e.date >= filters.startDate!);
+    if (filters?.endDate) list = list.filter(e => e.date <= filters.endDate!);
+    if (filters?.category) list = list.filter(e => e.category === filters.category);
+    if (filters?.status) list = list.filter(e => e.status === filters.status);
+    return list;
   },
 
-  async fetchAll(): Promise<AuditLog[]> {
-    const data = await fetchAllFromTable("audit_logs", "created_at");
-    cache.auditLogs = data.map(toAuditLog);
-    return cache.auditLogs;
+  async fetchAll(): Promise<Expense[]> {
+    const data = await fetchAllFromTable("expenses", "date");
+    cache.expenses = data.map(toExpense);
+    return cache.expenses;
   },
-};
 
-// ─── Abertura Automática do Caixa ─────────────────────────
+  async create(data: Omit<Expense, "id" | "createdAt">): Promise<Expense> {
+    const { data: row, error } = await supabase
+      .from("expenses")
+      .insert({
+        date: data.date,
+        category: data.category,
+        description: data.description,
+        amount: data.amount,
+        status: data.status,
+        notes: data.notes,
+      })
+      .select()
+      .single();
 
-export async function autoOpenCashIfNeeded(): Promise<boolean> {
-  try {
-    const config = localStorage.getItem("salon_config");
+    if (error) throw error;
 
-    if (config) {
-      const parsed = JSON.parse(config);
+    const exp = toExpense(row);
+    cache.expenses.push(exp);
+    await addAuditLog("expense", exp.id, "create", `Despesa "${exp.description}" criada`);
+    return exp;
+  },
 
-      if (parsed.autoOpenCash === false) return false;
+  async update(id: number, data: Partial<Expense>): Promise<Expense | null> {
+    const p: any = {};
+    if (data.date !== undefined) p.date = data.date;
+    if (data.category !== undefined) p.category = data.category;
+    if (data.description !== undefined) p.description = data.description;
+    if (data.amount !== undefined) p.amount = data.amount;
+    if (data.status !== undefined) p.status = data.status;
+    if (data.notes !== undefined) p.notes = data.notes;
+
+    const { data: row, error } = await supabase
+      .from("expenses")
+      .update(p)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    const exp = toExpense(row);
+    const idx = cache.expenses.findIndex(e => e.id === id);
+    if (idx !== -1) cache.expenses[idx] = exp;
+    await addAuditLog("expense", id, "update", `Despesa "${exp.description}" atualizada`);
+    return exp;
+  },
+
+  async delete(id: number): Promise<void> {
+    const exp = cache.expenses.find(e => e.id === id);
+    await supabase.from("expenses").delete().eq("id", id);
+    cache.expenses = cache.expenses.filter(e => e.id !== id);
+    if (exp) {
+      await addAuditLog("expense", id, "delete", `Despesa "${exp.description}" removida`);
     }
-  } catch {
-    // ignore
-  }
+  },
+};
 
-  const currentSession = cashSessionsStore.getCurrent();
+// ─── Commission Closings ─────────────────────────────────
 
-  if (currentSession) return false;
+export const commissionClosingsStore = {
+  list(): CommissionClosing[] {
+    return [...cache.commissionClosings];
+  },
 
-  const sessions = cashSessionsStore.list();
-  const lastClosed = sessions.find(s => s.status === "closed");
-  const openingBalance = lastClosed?.totalRevenue
-    ? Math.max(
-        0,
-        (lastClosed.totalRevenue - (lastClosed.totalCommissions ?? 0)) +
-          (lastClosed.openingBalance ?? 0),
-      )
-    : 0;
+  async fetchAll(): Promise<CommissionClosing[]> {
+    const data = await fetchAllFromTable("commission_closings", "created_at");
+    cache.commissionClosings = data.map(toCommissionClosing);
+    return cache.commissionClosings;
+  },
 
-  await cashSessionsStore.open(openingBalance);
+  async create(data: Omit<CommissionClosing, "id" | "createdAt">): Promise<CommissionClosing> {
+    const { data: row, error } = await supabase
+      .from("commission_closings")
+      .insert({
+        employee_id: data.employeeId,
+        period_start: data.periodStart,
+        period_end: data.periodEnd,
+        total_revenue: data.totalRevenue,
+        total_commission: data.totalCommission,
+        appointment_count: data.appointmentCount,
+        status: data.status,
+        notes: data.notes,
+      })
+      .select()
+      .single();
 
-  return true;
-}
+    if (error) throw error;
 
-// ─── Carregamento inicial ─────────────────────────────────
+    const closing = toCommissionClosing(row);
+    cache.commissionClosings.push(closing);
+    await addAuditLog("commission_closing", closing.id, "create", `Fechamento de comissão criado para funcionário #${data.employeeId}`);
+    return closing;
+  },
+
+  async markAsPaid(id: number): Promise<CommissionClosing | null> {
+    const { data: row, error } = await supabase
+      .from("commission_closings")
+      .update({
+        status: "paga",
+        paid_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    const closing = toCommissionClosing(row);
+    const idx = cache.commissionClosings.findIndex(c => c.id === id);
+    if (idx !== -1) cache.commissionClosings[idx] = closing;
+    await addAuditLog("commission_closing", id, "update", `Fechamento de comissão #${id} marcado como pago`);
+    return closing;
+  },
+
+  async delete(id: number): Promise<void> {
+    await supabase.from("commission_closings").delete().eq("id", id);
+    cache.commissionClosings = cache.commissionClosings.filter(c => c.id !== id);
+    await addAuditLog("commission_closing", id, "delete", `Fechamento de comissão #${id} removido`);
+  },
+};
+
+// ─── Boot ────────────────────────────────────────────────
 
 export async function fetchAllData(): Promise<void> {
   await Promise.all([
@@ -1404,72 +1471,71 @@ export async function fetchAllData(): Promise<void> {
     appointmentsStore.fetchAll(),
     cashSessionsStore.fetchAll(),
     cashEntriesStore.fetchAll(),
-    // auditStore.fetchAll() removido do boot — carregado sob demanda em HistoricoPage/BackupPage
+    expensesStore.fetchAll(),
+    commissionClosingsStore.fetchAll(),
   ]);
 }
 
 /**
  * fetchDashboardData — Carrega APENAS os dados necessários para o Dashboard.
- * Muito mais rápido que fetchAllData() porque:
- *   - Agendamentos: só do dia atual (poucos registros)
- *   - Clientes: apenas o COUNT via Supabase (sem baixar todos os registros)
- *   - Funcionários e sessão de caixa: poucos registros, OK carregar tudo
- *   - NÃO carrega: cashEntries, auditLogs (desnecessários no dashboard)
  */
 export async function fetchDashboardData(): Promise<{ clientCount: number }> {
   const today = new Date().toISOString().split("T")[0];
 
   const [, , apptResult, , countResult] = await Promise.all([
-    // Funcionários (poucos registros)
     employeesStore.fetchAll(),
-
-    // Serviços (poucos registros)
     servicesStore.fetchAll(),
-
-    // Agendamentos só do dia atual
     supabase
       .from("appointments")
       .select("*")
       .gte("start_time", `${today}T00:00:00`)
       .lte("start_time", `${today}T23:59:59`)
       .order("start_time"),
-
-    // Sessão de caixa aberta
     cashSessionsStore.fetchAll(),
-
-    // COUNT de clientes sem baixar todos
     supabase
       .from("clients")
       .select("id", { count: "exact", head: true }),
   ]);
 
-  // Popular cache de agendamentos com só os de hoje
   if (apptResult.data && !apptResult.error) {
-    const mapped = apptResult.data.map((row: any) => ({
-      id: row.id,
-      clientName: row.client_name,
-      clientId: row.client_id,
-      employeeId: row.employee_id,
-      startTime: row.start_time,
-      endTime: row.end_time,
-      status: row.status,
-      totalPrice: row.total_price,
-      notes: row.notes,
-      paymentStatus: row.payment_status,
-      groupId: row.group_id,
-      services: row.services ?? [],
-      createdAt: row.created_at,
-    }));
-
-    // Merge no cache sem apagar agendamentos de outros dias já carregados
-    const otherDays = (cache as any).appointments.filter(
+    const mapped = apptResult.data.map((row: any) => toAppointment(row));
+    const otherDays = cache.appointments.filter(
       (a: any) => !a.startTime?.startsWith(today),
     );
-
-    (cache as any).appointments = [...otherDays, ...mapped];
+    cache.appointments = [...otherDays, ...mapped];
   }
 
-  const clientCount = countResult.count ?? (cache as any).clients.length;
+  const clientCount = countResult.count ?? cache.clients.length;
 
   return { clientCount };
+}
+
+// ─── Auto-Launch ─────────────────────────────────────────
+
+async function autoLaunchCashEntry(appt: Appointment): Promise<void> {
+  const session = cashSessionsStore.getCurrent();
+  if (!session) return;
+
+  const emp = cache.employees.find(e => e.id === appt.employeeId);
+  const rev = toNum(appt.totalPrice);
+  const mat = (appt.services ?? []).reduce((s, svc) => s + (toNum(svc.price) * (toNum(svc.materialCostPercent) / 100)), 0);
+  const comm = emp ? (appt.services ?? []).reduce((s, svc) => {
+    const p = toNum(svc.price);
+    const m = p * (toNum(svc.materialCostPercent) / 100);
+    return s + calcCommission(p, m, emp.commissionPercent, svc.commissionMode);
+  }, 0) : 0;
+
+  await cashEntriesStore.create({
+    sessionId: session.id,
+    appointmentId: appt.id,
+    clientName: appt.clientName ?? "Cliente",
+    employeeId: appt.employeeId,
+    description: `Atendimento: ${appt.services.map(s => s.name).join(", ")}`,
+    amount: rev,
+    paymentMethod: "dinheiro",
+    commissionPercent: emp?.commissionPercent ?? 0,
+    commissionValue: comm,
+    materialCostValue: mat,
+    isAutoLaunch: true,
+  });
 }
