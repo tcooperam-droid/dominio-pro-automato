@@ -1,9 +1,9 @@
 /**
- * RelatoriosPage — Relatórios completos.
+ * RelatoriosPage — Relatórios completos com comparativo de períodos.
  * Fonte de verdade: agendamentos.
  */
 import { useState, useMemo } from "react";
-import { format, subDays, parseISO, startOfDay, endOfDay } from "date-fns";
+import { format, subDays, parseISO, startOfDay, endOfDay, subMonths, subWeeks, subYears } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,13 +13,14 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line,
 } from "recharts";
-import { TrendingUp, Users, DollarSign, Award, Calendar, Scissors, Percent, X, ChevronRight } from "lucide-react";
+import { TrendingUp, Users, DollarSign, Award, Calendar, Scissors, Percent, X, ChevronRight, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { appointmentsStore, employeesStore, servicesStore } from "@/lib/store";
 import {
   calcPeriodStats, calcRevenueByDay, calcRevenueByEmployee,
   calcPopularServices, getAppointmentsInPeriod, getPeriodDates,
   toNum, type Period,
 } from "@/lib/analytics";
+import { cn } from "@/lib/utils";
 
 const tooltipStyle = { backgroundColor: "hsl(240 6% 10%)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, color: "#fff", fontSize: 12 };
 const tickStyle = { fontSize: 11, fill: "hsl(0 0% 55%)" };
@@ -43,15 +44,38 @@ export default function RelatoriosPage() {
 
   const { start, end, label } = getPeriodDates(period, customStart, customEnd);
 
+  // Período anterior para comparação
+  const prevDates = useMemo(() => {
+    const diff = end.getTime() - start.getTime();
+    const pStart = new Date(start.getTime() - diff - 86400000);
+    const pEnd = new Date(start.getTime() - 86400000);
+    return { start: pStart, end: pEnd };
+  }, [start, end]);
+
   // Filtrar apenas agendamentos até o momento presente (sem projeções futuras)
   const now = new Date();
-  const appts    = useMemo(() => getAppointmentsInPeriod(start, end).filter(a => {
+  const appts = useMemo(() => getAppointmentsInPeriod(start, end).filter(a => {
     try { return parseISO(a.startTime) <= now; } catch { return false; }
   }), [start, end]);
-  const stats    = useMemo(() => calcPeriodStats(appts, employees), [appts, employees]);
+
+  const prevAppts = useMemo(() => getAppointmentsInPeriod(prevDates.start, prevDates.end).filter(a => {
+    try { return parseISO(a.startTime) <= now; } catch { return false; }
+  }), [prevDates]);
+
+  const stats = useMemo(() => calcPeriodStats(appts, employees), [appts, employees]);
+  const prevStats = useMemo(() => calcPeriodStats(prevAppts, employees), [prevAppts, employees]);
+
   const byDay    = useMemo(() => calcRevenueByDay(appts, Math.min(30, Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1)), [appts, start, end]);
   const byEmp    = useMemo(() => calcRevenueByEmployee(appts, employees), [appts, employees]);
   const services = useMemo(() => calcPopularServices(appts), [appts]);
+
+  // Cálculos de Crescimento
+  const growth = {
+    revenue: prevStats.totalRevenue > 0 ? ((stats.totalRevenue - prevStats.totalRevenue) / prevStats.totalRevenue) * 100 : 0,
+    count: prevStats.count > 0 ? ((stats.count - prevStats.count) / prevStats.count) * 100 : 0,
+    avgTicket: prevStats.avgTicket > 0 ? ((stats.avgTicket - prevStats.avgTicket) / prevStats.avgTicket) * 100 : 0,
+    cancelRate: stats.cancelRate - prevStats.cancelRate
+  };
 
   // Status breakdown
   const byStatus = useMemo(() => {
@@ -71,19 +95,18 @@ export default function RelatoriosPage() {
   }, [appts]);
 
   const kpis = [
-    { label: "Faturamento",        value: `R$ ${stats.totalRevenue.toFixed(2)}`,   icon: DollarSign, color: "#ec4899" },
-    { label: "Líquido",            value: `R$ ${stats.netRevenue.toFixed(2)}`,      icon: TrendingUp, color: "#22c55e" },
-    { label: "Atendimentos",       value: String(stats.count),                      icon: Calendar,   color: "#3b82f6" },
-    { label: "Ticket Médio",       value: `R$ ${stats.avgTicket.toFixed(2)}`,       icon: DollarSign, color: "#f59e0b" },
-    { label: "Comissões",          value: `R$ ${stats.totalCommissions.toFixed(2)}`,icon: Percent,    color: "#8b5cf6" },
-    { label: "Custo Material",     value: `R$ ${stats.totalMaterial.toFixed(2)}`,   icon: Scissors,   color: "#06b6d4" },
-    { label: "Cancelamentos",      value: `${stats.cancelRate.toFixed(1)}%`,        icon: Users,      color: "#ef4444" },
-    { label: "Agend. Futuros",     value: `R$ ${stats.scheduledRevenue.toFixed(2)}`,icon: Calendar,   color: "#f97316" },
+    { label: "Faturamento", value: `R$ ${stats.totalRevenue.toFixed(2)}`, icon: DollarSign, color: "#ec4899", growth: growth.revenue },
+    { label: "Líquido", value: `R$ ${stats.netRevenue.toFixed(2)}`, icon: TrendingUp, color: "#22c55e", growth: null },
+    { label: "Atendimentos", value: String(stats.count), icon: Calendar, color: "#3b82f6", growth: growth.count },
+    { label: "Ticket Médio", value: `R$ ${stats.avgTicket.toFixed(2)}`, icon: DollarSign, color: "#f59e0b", growth: growth.avgTicket },
+    { label: "Comissões", value: `R$ ${stats.totalCommissions.toFixed(2)}`, icon: Percent, color: "#8b5cf6", growth: null },
+    { label: "Custo Material", value: `R$ ${stats.totalMaterial.toFixed(2)}`, icon: Scissors, color: "#06b6d4", growth: null },
+    { label: "Cancelamentos", value: `${stats.cancelRate.toFixed(1)}%`, icon: Users, color: "#ef4444", growth: growth.cancelRate, inverse: true },
+    { label: "Agend. Futuros", value: `R$ ${stats.scheduledRevenue.toFixed(2)}`, icon: Calendar, color: "#f97316", growth: null },
   ];
 
   return (
     <div className="p-4 md:p-6 space-y-6">
-
       {/* Header + período */}
       <div className="space-y-3">
         <div>
@@ -114,14 +137,25 @@ export default function RelatoriosPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {kpis.map(({ label, value, icon: Icon, color }) => (
+        {kpis.map(({ label, value, icon: Icon, color, growth, inverse }) => (
           <Card key={label} className="border-border bg-card/50">
             <CardContent className="pt-4 pb-3">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center justify-between mb-2">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center"
                   style={{ background: `${color}20` }}>
                   <Icon className="w-4 h-4" style={{ color }} />
                 </div>
+                {growth !== null && (
+                  <div className={cn(
+                    "flex items-center gap-0.5 text-[10px] font-bold",
+                    inverse 
+                      ? (growth > 0 ? "text-red-400" : "text-emerald-400")
+                      : (growth > 0 ? "text-emerald-400" : "text-red-400")
+                  )}>
+                    {growth > 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                    {Math.abs(growth).toFixed(1)}%
+                  </div>
+                )}
               </div>
               <p className="text-lg font-bold" style={{ color }}>{value}</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">{label}</p>
@@ -149,7 +183,6 @@ export default function RelatoriosPage() {
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
         {/* Ranking funcionários */}
         <Card className="border-border bg-card/50">
           <CardHeader className="pb-3">
@@ -180,8 +213,6 @@ export default function RelatoriosPage() {
                       </div>
                       <div className="flex gap-3 text-[10px] text-muted-foreground">
                         <span>{emp.count} atend.</span>
-                        <span>Comissão: R$ {emp.commission.toFixed(2)}</span>
-                        {emp.material > 0 && <span>Material: R$ {emp.material.toFixed(2)}</span>}
                         <span className="text-emerald-400">Líq: R$ {emp.net.toFixed(2)}</span>
                       </div>
                     </div>
@@ -232,16 +263,15 @@ export default function RelatoriosPage() {
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: svc.color }} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-medium truncate">{svc.name}</span>
-                        <span className="text-xs text-muted-foreground ml-2 flex-shrink-0">{svc.count}x</span>
+                        <span className="text-sm font-semibold truncate">{svc.name}</span>
+                        <span className="text-xs font-bold text-primary">{svc.count}x</span>
                       </div>
-                      <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                        <div className="h-full rounded-full" style={{
-                          width: `${services[0] ? (svc.count / services[0].count) * 100 : 0}%`,
+                      <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                        <div className="h-full rounded-full bg-primary transition-all" style={{
+                          width: `${(svc.count / services[0].count) * 100}%`,
                           backgroundColor: svc.color,
                         }} />
                       </div>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">R$ {svc.revenue.toFixed(2)} gerado</p>
                     </div>
                   </div>
                 ))}
@@ -249,100 +279,7 @@ export default function RelatoriosPage() {
             )}
           </CardContent>
         </Card>
-
-        {/* Breakdown financeiro */}
-        <Card className="border-border bg-card/50">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Breakdown Financeiro</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {[
-              { label: "Faturamento bruto",  value: stats.totalRevenue,     color: "#ec4899" },
-              { label: "- Custo material",   value: -stats.totalMaterial,   color: "#06b6d4" },
-              { label: "- Comissões",        value: -stats.totalCommissions, color: "#8b5cf6" },
-              { label: "= Líquido salão",    value: stats.netRevenue,       color: "#22c55e", bold: true },
-            ].map(({ label, value, color, bold }) => (
-              <div key={label} className={`flex justify-between items-center ${bold ? "pt-2 border-t border-border" : ""}`}>
-                <span className={`text-sm ${bold ? "font-bold text-white" : "text-muted-foreground"}`}>{label}</span>
-                <span className={`text-sm font-bold`} style={{ color }}>{value >= 0 ? "" : ""}R$ {Math.abs(value).toFixed(2)}</span>
-              </div>
-            ))}
-            {stats.scheduledRevenue > 0 && (
-              <>
-                <div className="pt-2 border-t border-border flex justify-between">
-                  <span className="text-sm text-muted-foreground">+ Agendados (projeção)</span>
-                  <span className="text-sm font-bold text-amber-400">R$ {stats.scheduledRevenue.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm font-bold text-white">= Projeção total</span>
-                  <span className="text-sm font-bold text-amber-400">R$ {(stats.netRevenue + stats.scheduledRevenue).toFixed(2)}</span>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
       </div>
-      {/* Modal de detalhe do funcionário */}
-      {selectedEmp && (() => {
-        const empAppts = getAppointmentsInPeriod(start, end)
-          .filter(a => a.employeeId === selectedEmp.id && parseISO(a.startTime) <= now);
-        const days = Math.min(30, Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1);
-        const empByDay: { label: string; revenue: number; count: number }[] = [];
-        for (let i = days - 1; i >= 0; i--) {
-          const d = subDays(new Date(), i);
-          const key = format(d, "yyyy-MM-dd");
-          const dayAppts = empAppts.filter(a => {
-            try { return format(parseISO(a.startTime), "yyyy-MM-dd") === key; } catch { return false; }
-          });
-          empByDay.push({
-            label: format(d, "dd/MM"),
-            revenue: dayAppts.reduce((s, a) => s + (a.totalPrice ?? 0), 0),
-            count: dayAppts.length,
-          });
-        }
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)" }} onClick={() => setSelectedEmp(null)}>
-            <div className="w-full max-w-md rounded-2xl p-5 space-y-4" style={{ background: "hsl(240 6% 10%)", border: "1px solid rgba(255,255,255,0.1)" }} onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: selectedEmp.color }} />
-                  <h3 className="font-bold text-white">{selectedEmp.name.split(" ")[0]}</h3>
-                </div>
-                <button onClick={() => setSelectedEmp(null)} className="p-1 rounded-lg hover:bg-white/10">
-                  <X className="w-4 h-4 text-white/60" />
-                </button>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-xl p-3 text-center" style={{ background: "rgba(255,255,255,0.05)" }}>
-                  <p className="text-xs text-muted-foreground">Faturamento</p>
-                  <p className="text-sm font-bold" style={{ color: selectedEmp.color }}>R$ {selectedEmp.revenue.toFixed(2)}</p>
-                </div>
-                <div className="rounded-xl p-3 text-center" style={{ background: "rgba(255,255,255,0.05)" }}>
-                  <p className="text-xs text-muted-foreground">Comissão</p>
-                  <p className="text-sm font-bold text-purple-400">R$ {selectedEmp.commission.toFixed(2)}</p>
-                </div>
-                <div className="rounded-xl p-3 text-center" style={{ background: "rgba(255,255,255,0.05)" }}>
-                  <p className="text-xs text-muted-foreground">Atend.</p>
-                  <p className="text-sm font-bold text-blue-400">{selectedEmp.count}</p>
-                </div>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">Faturamento diário</p>
-                <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={empByDay} barSize={16}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(0 0% 55%)" }} interval="preserveStartEnd" />
-                    <YAxis tick={{ fontSize: 10, fill: "hsl(0 0% 55%)" }} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => [`R$ ${Number(v).toFixed(2)}`, "Faturamento"]} />
-                    <Bar dataKey="revenue" fill={selectedEmp.color} radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }
