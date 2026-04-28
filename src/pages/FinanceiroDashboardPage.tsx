@@ -63,7 +63,12 @@ export default function FinanceiroDashboardPage() {
   const multiPeriodStats = useMemo(() => {
     return PERIOD_TABS.map(({ value, label }) => {
       const { start, end } = getPeriodDates(value as any);
-      const appts   = getAppointmentsInPeriod(start, end).filter(a => parseISO(a.startTime) <= new Date());
+      const appts = allAppts.filter(a => {
+        try {
+          const d = parseISO(a.startTime);
+          return d >= start && d <= end && d <= now && toNum(a.totalPrice) > 0;
+        } catch { return false; }
+      });
       const revenue = appts.reduce((s, a) => s + toNum(a.totalPrice), 0);
       const count   = appts.length;
       return { period: value, label, revenue, count, avgTicket: count > 0 ? revenue / count : 0 };
@@ -77,13 +82,18 @@ export default function FinanceiroDashboardPage() {
   );
 
   const periodAppts = useMemo(
-    () => getAppointmentsInPeriod(pStart, pEnd).filter(a => parseISO(a.startTime) <= new Date()),
+    () => allAppts.filter(a => {
+      try {
+        const d = parseISO(a.startTime);
+        return d >= pStart && d <= pEnd && d <= now && toNum(a.totalPrice) > 0;
+      } catch { return false; }
+    }),
     [pStart, pEnd, allAppts]
   );
 
   const pStats = useMemo(
-    () => calcPeriodStats(getAppointmentsInPeriod(pStart, pEnd), employees),
-    [pStart, pEnd, employees, allAppts]
+    () => calcPeriodStats(periodAppts, employees),
+    [periodAppts, employees]
   );
 
   const periodExpenses = useMemo(() => {
@@ -97,13 +107,19 @@ export default function FinanceiroDashboardPage() {
   const margem         = pStats.totalRevenue > 0 ? (lucroReal / pStats.totalRevenue) * 100 : 0;
 
   // ── Gráficos ─────────────────────────────────────────────
-  const revenueByDay    = useMemo(() => calcRevenueByDay(allAppts, 30), [allAppts]);
+  const pastAppts = useMemo(() =>
+    allAppts.filter(a => {
+      try { return parseISO(a.startTime) <= now && toNum(a.totalPrice) > 0; }
+      catch { return false; }
+    }), [allAppts]);
+
+  const revenueByDay    = useMemo(() => calcRevenueByDay(pastAppts, 30), [pastAppts]);
   const revenueByEmp    = useMemo(() => calcRevenueByEmployee(periodAppts, employees), [periodAppts, employees]);
   const topClients      = useMemo(() => calcTopClients(periodAppts, 10), [periodAppts]);
-  const profitServices  = useMemo(() => calcMostProfitableServices(allAppts).slice(0, 8), [allAppts]);
+  const profitServices  = useMemo(() => calcMostProfitableServices(pastAppts).slice(0, 8), [pastAppts]);
 
   // ── Projeção ─────────────────────────────────────────────
-  const convRate = useMemo(() => calcConversionRate(allAppts), [allAppts]);
+  const convRate = useMemo(() => calcConversionRate(pastAppts), [pastAppts]);
 
   const futureAppts = useMemo(() => allAppts.filter(a =>
     ["scheduled", "confirmed"].includes(a.status) && parseISO(a.startTime) > now
@@ -130,7 +146,7 @@ export default function FinanceiroDashboardPage() {
   }, [futureAppts, convRate]);
 
   // ── Alertas ───────────────────────────────────────────────
-  const inactiveClients = useMemo(() => calcInactiveClients(allAppts, 45), [allAppts]);
+  const inactiveClients = useMemo(() => calcInactiveClients(pastAppts, 45), [pastAppts]);
 
   const overdueExpenses = useMemo(() =>
     allExpenses.filter(e => e.status === "pendente" && e.date < todayStr),
