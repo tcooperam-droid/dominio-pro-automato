@@ -87,7 +87,6 @@ export default function ComissoesPage() {
       const appts = allAppts.filter(a =>
         a.employeeId === emp.id &&
         a.startTime.slice(0, 10) >= startStr &&
-        a.startTime.slice(0, 10) <= endStr &&
         a.startTime.slice(0, 10) <= todayStr &&
         (a.totalPrice ?? 0) > 0
       );
