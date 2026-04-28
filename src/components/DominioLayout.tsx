@@ -3,7 +3,7 @@
  * Mobile: bottom navigation + topbar.
  * Desktop: sidebar elegante à esquerda.
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { getSession, clearSession, MENU_VISIBILITY, isAccessControlEnabled } from "@/lib/access";
 import { cn } from "@/lib/utils";
@@ -12,8 +12,8 @@ import { trackAction } from "@/lib/agentTracker";
 import {
   Calendar, Users, UserCheck, Scissors, DollarSign,
   BarChart2, Settings, History, Database, Menu, X,
-  Sun, Moon, Plus, Search, ChevronRight, Wrench,
-  CalendarCheck, Bell, LogOut,
+  Sun, Moon, Plus, Wrench,
+  CalendarCheck, LogOut, Receipt, Percent, TrendingUp
 } from "lucide-react";
 
 // ─── Navegação ────────────────────────────────────────────
@@ -25,10 +25,12 @@ const PRIMARY_NAV = [
 ];
 
 const SECONDARY_NAV = [
+  { path: "/financeiro",            label: "Financeiro",    icon: TrendingUp  },
+  { path: "/despesas",              label: "Despesas",      icon: Receipt     },
+  { path: "/comissoes",             label: "Comissões",     icon: Percent     },
   { path: "/funcionarios",          label: "Funcionários",  icon: UserCheck   },
   { path: "/servicos",              label: "Serviços",      icon: Scissors    },
   { path: "/ferramentas-clientes",  label: "Ferramentas",   icon: Wrench      },
-  { path: "/dashboard-caixa",       label: "Dashboard $",   icon: BarChart2   },
   { path: "/relatorios",            label: "Relatórios",    icon: BarChart2   },
   { path: "/historico",             label: "Histórico",     icon: History     },
   { path: "/historico-agendamentos",label: "Agendamentos",  icon: CalendarCheck },
@@ -282,10 +284,12 @@ export default function DominioLayout({ children, onNewAppt }: {
   const visibleSecondaryNav = SECONDARY_NAV.filter(n => {
     const key = n.path.replace("/", "").split("/")[0];
     const keyMap: Record<string,string> = {
+      "financeiro": "financeiro",
+      "despesas": "despesas",
+      "comissoes": "comissoes",
       "funcionarios": "funcionarios",
       "servicos": "servicos",
       "ferramentas-clientes": "ferramentas",
-      "caixa": "caixa",
       "relatorios": "relatorios",
       "historico": "historico",
       "backup": "backup",
@@ -320,185 +324,130 @@ export default function DominioLayout({ children, onNewAppt }: {
     location === path || location.startsWith(path + "/");
 
   return (
-    <div className="flex h-screen overflow-hidden" style={Object.keys(bgStyle).length > 0 ? bgStyle : { backgroundColor: palette.bg }}>
-
-      {/* ── Overlay mobile ── */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden"
-          onClick={() => setSidebarOpen(false)} />
-      )}
-
-      {/* ── Sidebar desktop / drawer mobile ── */}
+    <div className="flex h-screen overflow-hidden" style={Object.keys(bgStyle).length > 0 ? bgStyle : { background: palette.bg }}>
+      {/* ── Sidebar — desktop ── */}
       <aside className={cn(
-        "fixed md:relative z-50 flex flex-col h-full",
-        "transition-transform duration-300 ease-out",
-        "w-64",
-        sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
-      )} style={{
-        background: palette.surface,
-        backdropFilter: "blur(32px)",
-        WebkitBackdropFilter: "blur(32px)",
-        borderRight: `1px solid ${palette.border}`,
-      }}>
-
-        {/* Brand */}
-        <div className="flex flex-col items-center pt-7 pb-5 px-4"
-          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-          <div className="relative mb-3">
-            <BrandLogo size={72} />
+        "fixed inset-y-0 left-0 z-50 w-72 transition-all duration-300 md:relative md:translate-x-0",
+        sidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )}
+        style={{
+          background: palette.surface,
+          backdropFilter: "blur(24px)",
+          WebkitBackdropFilter: "blur(24px)",
+          borderRight: "1px solid rgba(255,255,255,0.08)",
+        }}>
+        <div className="flex flex-col h-full">
+          {/* Logo / Header */}
+          <div className="p-6 flex items-center gap-4">
+            <BrandLogo size={42} />
+            <div className="flex flex-col min-w-0">
+              <span className="font-bold text-lg truncate" style={{ color: palette.textColor }}>
+                {branding.name}
+              </span>
+              <span className="text-[10px] font-medium tracking-widest uppercase opacity-40" style={{ color: palette.textColor }}>
+                Sistema de Gestão
+              </span>
+            </div>
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden ml-auto p-2 text-white/40">
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <p style={{
-            fontFamily: "'Space Grotesk', sans-serif",
-            fontWeight: 700, fontSize: 16,
-            letterSpacing: "0.15em",
-            textTransform: "uppercase",
-            color: palette.textColor,
-            textShadow: `0 0 20px ${accent}80`,
-            textAlign: "center",
-            lineHeight: 1.2,
-          }}>{branding.name}</p>
-          <p style={{ fontSize: 10, color: palette.textMuted, letterSpacing: "0.25em", marginTop: 3 }}>
-            PRO
-          </p>
 
-          {/* Fechar — só mobile */}
-          <button className="md:hidden absolute top-4 right-4 text-white/30 hover:text-white/70 transition-colors"
-            onClick={() => setSidebarOpen(false)}>
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+          {/* Navigation */}
+          <div className="flex-1 overflow-y-auto px-4 py-2 space-y-8 scrollbar-hide">
+            {/* Primário */}
+            <div className="space-y-1">
+              <span className="px-3 text-[10px] font-bold tracking-widest uppercase opacity-30 mb-2 block" style={{ color: palette.textColor }}>
+                Principal
+              </span>
+              {visiblePrimaryNav.map(({ path, label, icon: Icon }) => {
+                const active = isActive(path);
+                return (
+                  <button key={path} onClick={() => navigate(path)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group",
+                      active ? "shadow-lg" : "hover:bg-white/5"
+                    )}
+                    style={active ? {
+                      background: `linear-gradient(135deg, ${accent}, ${accent}cc)`,
+                      color: "#fff",
+                      boxShadow: `0 4px 15px ${accent}40`,
+                    } : { color: palette.textMuted }}>
+                    <Icon className={cn("w-5 h-5", active ? "text-white" : "group-hover:text-white transition-colors")} />
+                    <span className="font-medium text-sm">{label}</span>
+                    {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white/80" />}
+                  </button>
+                );
+              })}
+            </div>
 
-        {/* Nav principal */}
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-          <p style={{ fontSize: 10, color: palette.textMuted, letterSpacing: "0.2em", padding: "0 8px 8px" }}>
-            PRINCIPAL
-          </p>
-          {visiblePrimaryNav.map(({ path, label, icon: Icon }) => {
-            const active = isActive(path);
-            return (
-              <button key={path} onClick={() => navigate(path)}
-                className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
-                  active
-                    ? ""
-                    : "hover:bg-black/5"
-                )}
-                style={active ? {
-                  background: `linear-gradient(135deg, ${accent}25, ${accent}10)`,
-                  border: `1px solid ${accent}30`,
-                  boxShadow: `0 2px 12px ${accent}20`,
-                  color: palette.textColor,
-                } : { color: palette.textMuted }}
-              >
-                <div className={cn(
-                  "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0",
-                  active ? "" : "bg-white/5"
-                )} style={active ? {
-                  background: `linear-gradient(135deg, ${accent}40, ${accent}20)`,
-                } : {}}>
-                  <Icon className="w-4 h-4" style={active ? { color: accent } : {}} />
-                </div>
-                <span className="flex-1 text-left">{label}</span>
-                {active && <ChevronRight className="w-3.5 h-3.5 opacity-50" style={{ color: accent }} />}
-              </button>
-            );
-          })}
+            {/* Secundário */}
+            <div className="space-y-1">
+              <span className="px-3 text-[10px] font-bold tracking-widest uppercase opacity-30 mb-2 block" style={{ color: palette.textColor }}>
+                Gerenciamento
+              </span>
+              {visibleSecondaryNav.map(({ path, label, icon: Icon }) => {
+                const active = isActive(path);
+                return (
+                  <button key={path} onClick={() => navigate(path)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 group",
+                      active ? "shadow-md" : "hover:bg-white/5"
+                    )}
+                    style={active ? {
+                      background: `${accent}15`,
+                      color: accent,
+                      border: `1px solid ${accent}30`,
+                    } : { color: palette.textMuted }}>
+                    <Icon className={cn("w-4.5 h-4.5", active ? "text-accent" : "group-hover:text-white transition-colors")} />
+                    <span className="font-medium text-sm">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-          <div className="pt-4">
-            <p style={{ fontSize: 10, color: palette.textMuted, letterSpacing: "0.2em", padding: "0 8px 8px" }}>
-              GESTÃO
-            </p>
-            {visibleSecondaryNav.map(({ path, label, icon: Icon }) => {
-              const active = isActive(path);
-              return (
-                <button key={path} onClick={() => navigate(path)}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-200",
-                    active ? "" : "hover:bg-black/5"
-                  )}
-                  style={active ? {
-                    background: `linear-gradient(135deg, ${accent}20, ${accent}08)`,
-                    border: `1px solid ${accent}25`,
-                    color: palette.textColor,
-                  } : { color: palette.textMuted }}
-                >
-                  <Icon className="w-3.5 h-3.5 flex-shrink-0" style={active ? { color: accent } : {}} />
-                  <span>{label}</span>
+          {/* Footer / Profile */}
+          <div className="p-4 mt-auto border-t border-white/5">
+            <div className="flex items-center gap-3 p-2 rounded-2xl bg-white/5">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg"
+                style={{ background: `linear-gradient(135deg, ${accent}30, ${accent}10)`, color: accent }}>
+                {session?.profileName?.[0]?.toUpperCase() || "A"}
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-sm font-semibold truncate" style={{ color: palette.textColor }}>
+                  {session?.profileName || "Administrador"}
+                </span>
+                <span className="text-[10px] opacity-40 uppercase tracking-tighter" style={{ color: palette.textColor }}>
+                  {role === "owner" ? "Proprietário" : role === "manager" ? "Gerente" : "Funcionário"}
+                </span>
+              </div>
+              {accessEnabled && (
+                <button onClick={handleLogout} className="ml-auto p-2 rounded-lg hover:bg-white/5 text-white/30 hover:text-red-400 transition-all">
+                  <LogOut className="w-4 h-4" />
                 </button>
-              );
-            })}
+              )}
+            </div>
           </div>
-        </nav>
-
-        {/* Rodapé sidebar */}
-        <div className="px-3 py-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-          {switchable && (
-            <button onClick={toggleTheme}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-white/30 hover:text-white/60 hover:bg-white/5 transition-all">
-              {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-              <span>{theme === "dark" ? "Tema claro" : "Tema escuro"}</span>
-            </button>
-          )}
-          {accessEnabled && session && (
-            <button onClick={handleLogout}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs transition-all hover:bg-white/5 mb-1"
-              style={{ color: palette.textMuted }}>
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Sair ({session.profileName})</span>
-            </button>
-          )}
-          <p style={{ fontSize: 10, color: palette.textMuted, textAlign: "center", marginTop: 8 }}>
-            Domínio Pro v2.0
-          </p>
         </div>
       </aside>
 
-      {/* ── Área principal ── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-
-        {/* Topbar */}
-        <header className="flex-shrink-0 flex items-center gap-3 px-4 py-3"
-          style={{
-            background: palette.surface.replace("0.95", "0.80"),
-            backdropFilter: "blur(20px)",
-            WebkitBackdropFilter: "blur(20px)",
-            borderBottom: "1px solid rgba(255,255,255,0.06)",
-          }}>
-          {/* Menu burger — mobile */}
-          <button onClick={() => setSidebarOpen(true)}
-            className="md:hidden w-9 h-9 flex items-center justify-center rounded-xl text-white/50 hover:text-white hover:bg-white/8 transition-all">
-            <Menu className="w-5 h-5" />
+      {/* ── Main Content ── */}
+      <div className="flex-1 flex flex-col min-w-0 bg-transparent">
+        {/* Topbar — mobile & desktop header info */}
+        <header className="h-16 flex items-center px-4 md:px-8 gap-4 z-20">
+          <button onClick={() => setSidebarOpen(true)} className="md:hidden p-2 -ml-2 text-white/60">
+            <Menu className="w-6 h-6" />
           </button>
 
-          {/* Brand mobile */}
-          <div className="md:hidden flex items-center gap-2.5 flex-1">
-            <BrandLogo size={28} />
-            <span style={{
-              fontFamily: "'Space Grotesk', sans-serif",
-              fontWeight: 700, fontSize: 13,
-              letterSpacing: "0.15em",
-              textTransform: "uppercase",
-              color: palette.textColor,
-              textShadow: `0 0 12px ${accent}80`,
-            }}>{branding.name}</span>
+          <div className="flex flex-col">
+            <h1 className="text-lg md:text-xl font-bold tracking-tight" style={{ color: palette.textColor }}>
+              {visiblePrimaryNav.find(n => isActive(n.path))?.label ||
+               visibleSecondaryNav.find(n => isActive(n.path))?.label ||
+               "Início"}
+            </h1>
           </div>
 
-          {/* Título da página — desktop */}
-          <div className="hidden md:flex items-center gap-2 flex-1">
-            {(() => {
-              const all = [...PRIMARY_NAV, ...SECONDARY_NAV];
-              const cur = all.find(n => isActive(n.path));
-              const Icon = cur?.icon;
-              return cur ? (
-                <div className="flex items-center gap-2">
-                  {Icon && <Icon className="w-4 h-4" style={{ color: accent }} />}
-                  <span className="text-sm font-semibold" style={{ color: palette.textMuted }}>{cur.label}</span>
-                </div>
-              ) : null;
-            })()}
-          </div>
-
-          {/* Ações direita */}
           <div className="flex items-center gap-2 ml-auto">
             {/* Botão novo agendamento — desktop */}
             {onNewAppt && (
