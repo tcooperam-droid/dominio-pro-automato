@@ -19,7 +19,7 @@ import {
   appointmentsStore, employeesStore, commissionClosingsStore,
   type Employee, type CommissionClosing,
 } from "@/lib/store";
-import { calcCommission, calcMaterialCost, isCompleted, toNum } from "@/lib/analytics";
+import { calcCommission, calcMaterialCost, toNum } from "@/lib/analytics";
 
 function getAccent() {
   try { return JSON.parse(localStorage.getItem("salon_config") || "{}").accentColor || "#ec4899"; }
@@ -78,19 +78,24 @@ export default function ComissoesPage() {
     period === "custom" ? customEnd : undefined,
   ), [period, customStart, customEnd]);
 
-  const startStr = start.toISOString().slice(0, 10);
-  const endStr   = end.toISOString().slice(0, 10);
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const startStr = format(start, "yyyy-MM-dd");
+  const endStr   = format(end, "yyyy-MM-dd");
+  const effectiveEndStr = endStr > todayStr ? todayStr : endStr;
+  const effectiveEndDate = parseISO(effectiveEndStr);
+  const isCappedAtToday = endStr > todayStr;
 
   const empStats = useMemo(() => {
     return employees.map(emp => {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const appts = allAppts.filter(a =>
-        a.employeeId === emp.id &&
-        a.startTime.slice(0, 10) >= startStr &&
-        a.startTime.slice(0, 10) <= endStr &&
-        a.startTime.slice(0, 10) <= todayStr &&
-        (a.totalPrice ?? 0) > 0
-      );
+      const appts = allAppts.filter(a => {
+        const apptDate = a.startTime.slice(0, 10);
+        return (
+          a.employeeId === emp.id &&
+          apptDate >= startStr &&
+          apptDate <= effectiveEndStr &&
+          (a.totalPrice ?? 0) > 0
+        );
+      });
 
       const revenue    = appts.reduce((s, a) => s + toNum(a.totalPrice), 0);
       const material   = appts.reduce((s, a) => s + calcMaterialCost(a), 0);
@@ -98,7 +103,7 @@ export default function ComissoesPage() {
 
       return { emp, appts, revenue, material, commission, count: appts.length };
     }).filter(s => s.count > 0 || s.revenue > 0);
-  }, [employees, allAppts, startStr, endStr, refreshKey]);
+  }, [employees, allAppts, startStr, effectiveEndStr, refreshKey]);
 
   const totalStats = useMemo(() => ({
     revenue:    empStats.reduce((s, e) => s + e.revenue, 0),
@@ -116,7 +121,7 @@ export default function ComissoesPage() {
       await commissionClosingsStore.create({
         employeeId:       closingEmp.id,
         periodStart:      startStr,
-        periodEnd:        endStr,
+        periodEnd:        effectiveEndStr,
         totalRevenue:     stat.revenue,
         totalCommission:  stat.commission,
         appointmentCount: stat.count,
@@ -207,7 +212,8 @@ export default function ComissoesPage() {
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          {format(start, "dd/MM/yyyy", { locale: ptBR })} a {format(end, "dd/MM/yyyy", { locale: ptBR })}
+          {format(start, "dd/MM/yyyy", { locale: ptBR })} a {format(effectiveEndDate, "dd/MM/yyyy", { locale: ptBR })}
+          {isCappedAtToday && " · limitado até hoje"}
         </p>
       </div>
 
@@ -385,7 +391,7 @@ export default function ComissoesPage() {
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Período</span>
                     <span className="font-medium">
-                      {format(start, "dd/MM")} a {format(end, "dd/MM/yyyy")}
+                      {format(start, "dd/MM")} a {format(effectiveEndDate, "dd/MM/yyyy")}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -422,3 +428,4 @@ export default function ComissoesPage() {
     </div>
   );
 }
+
