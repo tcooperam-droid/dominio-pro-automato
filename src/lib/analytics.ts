@@ -2,22 +2,26 @@
  * analytics.ts — Fonte única de verdade para cálculos financeiros.
  * Todos os dados derivam dos agendamentos (appointments).
  * Regras:
- *  - Conta tudo exceto cancelled e no_show
- *  - Custo de material deduzido antes da comissão
- *  - Consistente em Dashboard, Caixa e Relatórios
+ *  - A agenda é a fonte de verdade.
+ *  - Tudo que está na agenda com valor > 0 entra no faturamento, independente do status.
+ *  - O caixa é apenas operacional.
  */
 import { appointmentsStore, employeesStore, type Appointment, type Employee } from "./store";
 import {
   format, isWithinInterval, parseISO,
   startOfWeek, endOfWeek, startOfMonth, endOfMonth,
-  startOfYear, endOfYear, subDays, addDays, subWeeks,
+  startOfYear, endOfYear, subDays, addDays, subWeeks, subMonths, subYears, isSameMonth, isSameYear,
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 export const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
 
+/** Regra Central: Se tem valor, entra no faturamento */
+export const isFinancialAppointment = (a: Appointment) => toNum(a.totalPrice) > 0;
+
 export const EXCLUDED = ["cancelled", "no_show"] as const;
-export const isValid = (a: Appointment) => !EXCLUDED.includes(a.status as any) && toNum(a.totalPrice) > 0;
+/** Mantido para compatibilidade, mas a regra financeira agora é isFinancialAppointment */
+export const isValid = (a: Appointment) => isFinancialAppointment(a);
 export const isCompleted = (a: Appointment) => a.status === "completed" && toNum(a.totalPrice) > 0;
 
 export type Period = "hoje" | "semana" | "mes" | "trimestre" | "ano" | "custom";
@@ -55,14 +59,15 @@ export function getPeriodDates(period: Period, customStart?: string, customEnd?:
 export function getAppointmentsInPeriod(start: Date, end: Date): Appointment[] {
   return appointmentsStore.list({}).filter(a => {
     try {
-      return isWithinInterval(parseISO(a.startTime), { start, end });
+      const d = parseISO(a.startTime);
+      return d >= start && d <= end;
     } catch { return false; }
   });
 }
 
 export function calcMaterialCost(appt: Appointment): number {
   return (appt.services ?? []).reduce((sum, s) => {
-    return sum + ((s.price ?? 0) * ((s.materialCostPercent ?? 0) / 100));
+    return sum + (toNum(s.price) * (toNum(s.materialCostPercent) / 100));
   }, 0);
 }
 
@@ -96,7 +101,7 @@ export interface PeriodStats {
 export function calcPeriodStats(appts: Appointment[], employees: Employee[]): PeriodStats {
   const empMap = new Map(employees.map(e => [e.id, e]));
 
-  const valid     = appts.filter(isValid);
+  const valid     = appts.filter(isFinancialAppointment);
   const future    = appts.filter(a => ["scheduled", "confirmed"].includes(a.status) && new Date(a.startTime) > new Date());
   const cancelled = appts.filter(a => EXCLUDED.includes(a.status as any));
 
@@ -136,12 +141,13 @@ export function calcRevenueByDay(
   days: number = 7,
 ): { date: string; label: string; revenue: number; count: number }[] {
   const result: { date: string; label: string; revenue: number; count: number }[] = [];
+  const now = new Date();
   for (let i = days - 1; i >= 0; i--) {
-    const d = subDays(new Date(), i);
+    const d = subDays(now, i);
     const key = format(d, "yyyy-MM-dd");
     const dayAppts = appts.filter(a => {
       try { return format(parseISO(a.startTime), "yyyy-MM-dd") === key; } catch { return false; }
-    }).filter(isValid);
+    }).filter(isFinancialAppointment);
     result.push({
       date:    key,
       label:   format(d, "dd/MM"),
@@ -154,7 +160,7 @@ export function calcRevenueByDay(
 
 export function calcRevenueByEmployee(appts: Appointment[], employees: Employee[]) {
   return employees.map(emp => {
-    const empAppts   = appts.filter(a => a.employeeId === emp.id).filter(isValid);
+    const empAppts   = appts.filter(a => a.employeeId === emp.id).filter(isFinancialAppointment);
     const revenue    = empAppts.reduce((s, a) => s + toNum(a.totalPrice), 0);
     const material   = empAppts.reduce((s, a) => s + calcMaterialCost(a), 0);
     const commission = empAppts.reduce((s, a) => s + calcCommission(a, emp), 0);
@@ -176,7 +182,7 @@ export function calcRevenueByEmployee(appts: Appointment[], employees: Employee[
 
 export function calcPopularServices(appts: Appointment[]) {
   const counts: Record<number, { serviceId: number; name: string; count: number; revenue: number; color: string }> = {};
-  appts.filter(isValid).forEach(a => {
+  appts.filter(isFinancialAppointment).forEach(a => {
     (a.services ?? []).forEach(s => {
       if (!counts[s.serviceId]) {
         counts[s.serviceId] = { serviceId: s.serviceId, name: s.name, count: 0, revenue: 0, color: s.color ?? "#ec4899" };
@@ -190,7 +196,6 @@ export function calcPopularServices(appts: Appointment[]) {
 
 // ─── Novas funções financeiras ────────────────────────────
 
-/** Top clientes por gasto total no conjunto de agendamentos fornecido */
 export function calcTopClients(
   appts: Appointment[],
   limit = 10,
@@ -202,7 +207,7 @@ export function calcTopClients(
   avgTicket: number;
   lastVisit: string;
 }[] {
-  const completed = appts.filter(isCompleted);
+  const financial = appts.filter(isFinancialAppointment);
 
   const map = new Map<string, {
     clientId: number | null;
@@ -212,7 +217,7 @@ export function calcTopClients(
     lastVisit: string;
   }>();
 
-  for (const a of completed) {
+  for (const a of financial) {
     const key = a.clientId ? `id:${a.clientId}` : `name:${(a.clientName ?? "Sem nome").toLowerCase()}`;
     const existing = map.get(key);
     const price = toNum(a.totalPrice);
@@ -239,11 +244,6 @@ export function calcTopClients(
     .slice(0, limit);
 }
 
-/**
- * Taxa de realização histórica.
- * completed / (completed + cancelled + no_show) dos últimos 90 dias.
- * Retorna valor entre 0 e 1.
- */
 export function calcConversionRate(appts: Appointment[]): number {
   const past90Start = subDays(new Date(), 90);
   const past = appts.filter(a => {
@@ -254,14 +254,13 @@ export function calcConversionRate(appts: Appointment[]): number {
   const completed  = past.filter(a => a.status === "completed").length;
   const terminal   = past.filter(a => ["completed", "cancelled", "no_show"].includes(a.status)).length;
 
-  if (terminal === 0) return 0.85; // fallback conservador se sem histórico
+  if (terminal === 0) return 0.85; 
   return completed / terminal;
 }
 
-/** Frequência média de retorno de um cliente em dias (-1 se menos de 2 visitas) */
 export function calcClientReturnFrequency(appts: Appointment[]): number {
   const sorted = appts
-    .filter(a => a.status === "completed")
+    .filter(isFinancialAppointment)
     .map(a => a.startTime.slice(0, 10))
     .sort();
 
@@ -276,7 +275,6 @@ export function calcClientReturnFrequency(appts: Appointment[]): number {
   return Math.round(totalDays / (sorted.length - 1));
 }
 
-/** Serviços mais lucrativos: ordena por margem = (receita - material) / receita */
 export function calcMostProfitableServices(appts: Appointment[]): {
   serviceId: number;
   name: string;
@@ -295,7 +293,7 @@ export function calcMostProfitableServices(appts: Appointment[]): {
     color: string;
   }>();
 
-  appts.filter(isCompleted).forEach(a => {
+  appts.filter(isFinancialAppointment).forEach(a => {
     (a.services ?? []).forEach(s => {
       const price    = toNum(s.price);
       const matCost  = price * (toNum(s.materialCostPercent) / 100);
@@ -323,10 +321,9 @@ export function calcMostProfitableServices(appts: Appointment[]): {
       ...s,
       margin: s.revenue > 0 ? ((s.revenue - s.materialCost) / s.revenue) * 100 : 0,
     }))
-    .sort((a, b) => b.margin - a.margin);
+    .sort((a, b) => b.revenue - a.revenue);
 }
 
-/** Faturamento das últimas N semanas para comparativo */
 export function calcWeeklyRevenue(
   appts: Appointment[],
   weeks: number = 8,
@@ -344,7 +341,7 @@ export function calcWeeklyRevenue(
         const d = parseISO(a.startTime);
         return isWithinInterval(d, { start: wStart, end: wEnd });
       } catch { return false; }
-    }).filter(isCompleted);
+    }).filter(isFinancialAppointment);
 
     result.push({
       weekLabel: label,
@@ -356,7 +353,6 @@ export function calcWeeklyRevenue(
   return result;
 }
 
-/** Clientes inativos há mais de N dias sem agendamento futuro */
 export function calcInactiveClients(
   appts: Appointment[],
   inactiveDays = 70,
@@ -373,7 +369,7 @@ export function calcInactiveClients(
   const lastVisitMap = new Map<string, { clientId: number | null; clientName: string; lastVisit: string }>();
 
   appts
-    .filter(a => a.status === "completed")
+    .filter(isFinancialAppointment)
     .forEach(a => {
       const key   = a.clientId ? `id:${a.clientId}` : `name:${(a.clientName ?? "").toLowerCase()}`;
       const date  = a.startTime.slice(0, 10);
@@ -394,3 +390,83 @@ export function calcInactiveClients(
     }))
     .sort((a, b) => b.daysSince - a.daysSince);
 }
+
+// ─── Visão Histórica ──────────────────────────────────────
+
+export interface HistoricalStats {
+  label: string;
+  revenue: number;
+  count: number;
+  avgTicket: number;
+  growth?: number;
+}
+
+export function calcMonthlyHistory(appts: Appointment[], months: number = 12): HistoricalStats[] {
+  const result: HistoricalStats[] = [];
+  const now = new Date();
+  
+  for (let i = months - 1; i >= 0; i--) {
+    const d = subMonths(now, i);
+    const start = startOfMonth(d);
+    const end = endOfMonth(d);
+    const label = format(d, "MMM/yy", { locale: ptBR });
+    
+    const monthAppts = appts.filter(a => {
+      try {
+        const ad = parseISO(a.startTime);
+        return ad >= start && ad <= end && ad <= now && isFinancialAppointment(a);
+      } catch { return false; }
+    });
+    
+    const revenue = monthAppts.reduce((s, a) => s + toNum(a.totalPrice), 0);
+    const count = monthAppts.length;
+    
+    const prev = result[result.length - 1];
+    const growth = (prev && prev.revenue > 0) ? ((revenue - prev.revenue) / prev.revenue) * 100 : undefined;
+    
+    result.push({
+      label,
+      revenue,
+      count,
+      avgTicket: count > 0 ? revenue / count : 0,
+      growth
+    });
+  }
+  return result;
+}
+
+export function calcYearlyHistory(appts: Appointment[]): HistoricalStats[] {
+  const result: HistoricalStats[] = [];
+  const now = new Date();
+  
+  // Pegar todos os anos presentes nos agendamentos
+  const years = Array.from(new Set(appts.map(a => parseISO(a.startTime).getFullYear()))).sort();
+  
+  for (let i = 0; i < years.length; i++) {
+    const year = years[i];
+    const start = startOfYear(new Date(year, 0, 1));
+    const end = endOfYear(new Date(year, 0, 1));
+    
+    const yearAppts = appts.filter(a => {
+      try {
+        const ad = parseISO(a.startTime);
+        return ad >= start && ad <= end && ad <= now && isFinancialAppointment(a);
+      } catch { return false; }
+    });
+    
+    const revenue = yearAppts.reduce((s, a) => s + toNum(a.totalPrice), 0);
+    const count = yearAppts.length;
+    
+    const prev = result[result.length - 1];
+    const growth = (prev && prev.revenue > 0) ? ((revenue - prev.revenue) / prev.revenue) * 100 : undefined;
+    
+    result.push({
+      label: String(year),
+      revenue,
+      count,
+      avgTicket: count > 0 ? revenue / count : 0,
+      growth
+    });
+  }
+  return result;
+  }
