@@ -4,26 +4,23 @@
  * Realizado vs Projeção nunca se misturam.
  */
 import { useState, useMemo } from "react";
-import { format, parseISO, subDays, differenceInDays } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { format, parseISO, subDays } from "date-fns";
 import { useLocation } from "wouter";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer, Cell, PieChart, Pie,
 } from "recharts";
 import {
-  TrendingUp, TrendingDown, DollarSign, Users, Scissors,
-  AlertCircle, AlertTriangle, CheckCircle, Info, ChevronRight,
-  Calendar, Clock,
+  TrendingUp, DollarSign, Scissors,
+  AlertCircle, AlertTriangle, CheckCircle, ChevronRight,
 } from "lucide-react";
 import { appointmentsStore, employeesStore, expensesStore } from "@/lib/store";
 import {
   calcPeriodStats, calcRevenueByDay, calcRevenueByEmployee,
   calcTopClients, calcConversionRate, calcMostProfitableServices,
   calcWeeklyRevenue, calcInactiveClients, getPeriodDates,
-  getAppointmentsInPeriod, toNum,
+  toNum, isFinancialAppointment,
 } from "@/lib/analytics";
-import { Button } from "@/components/ui/button";
 
 function getAccent() {
   try { return JSON.parse(localStorage.getItem("salon_config") || "{}").accentColor || "#ec4899"; }
@@ -66,14 +63,14 @@ export default function FinanceiroDashboardPage() {
       const appts = allAppts.filter(a => {
         try {
           const d = parseISO(a.startTime);
-          return d >= start && d <= end && d <= now && toNum(a.totalPrice) > 0;
+          return d >= start && d <= end && d <= now && isFinancialAppointment(a);
         } catch { return false; }
       });
       const revenue = appts.reduce((s, a) => s + toNum(a.totalPrice), 0);
       const count   = appts.length;
       return { period: value, label, revenue, count, avgTicket: count > 0 ? revenue / count : 0 };
     });
-  }, [allAppts]);
+  }, [allAppts, now]);
 
   // ── Breakdown do período selecionado ─────────────────────
   const { start: pStart, end: pEnd } = useMemo(
@@ -85,10 +82,10 @@ export default function FinanceiroDashboardPage() {
     () => allAppts.filter(a => {
       try {
         const d = parseISO(a.startTime);
-        return d >= pStart && d <= pEnd && d <= now && toNum(a.totalPrice) > 0;
+        return d >= pStart && d <= pEnd && d <= now && isFinancialAppointment(a);
       } catch { return false; }
     }),
-    [pStart, pEnd, allAppts]
+    [pStart, pEnd, allAppts, now]
   );
 
   const pStats = useMemo(
@@ -109,9 +106,9 @@ export default function FinanceiroDashboardPage() {
   // ── Gráficos ─────────────────────────────────────────────
   const pastAppts = useMemo(() =>
     allAppts.filter(a => {
-      try { return parseISO(a.startTime) <= now && toNum(a.totalPrice) > 0; }
+      try { return parseISO(a.startTime) <= now && isFinancialAppointment(a); }
       catch { return false; }
-    }), [allAppts]);
+    }), [allAppts, now]);
 
   const revenueByDay    = useMemo(() => calcRevenueByDay(pastAppts, 30), [pastAppts]);
   const revenueByEmp    = useMemo(() => calcRevenueByEmployee(periodAppts, employees), [periodAppts, employees]);
@@ -123,7 +120,7 @@ export default function FinanceiroDashboardPage() {
 
   const futureAppts = useMemo(() => allAppts.filter(a =>
     ["scheduled", "confirmed"].includes(a.status) && parseISO(a.startTime) > now
-  ), [allAppts]);
+  ), [allAppts, now]);
 
   const projection = useMemo(() => {
     const thisWeekEnd = new Date(now.getTime() + 7 * 86400000);
@@ -143,22 +140,14 @@ export default function FinanceiroDashboardPage() {
       monthAdj:sumFuture(thisMonthEnd) * convRate,
       count:   futureAppts.length,
     };
-  }, [futureAppts, convRate]);
+  }, [futureAppts, convRate, now]);
 
   // ── Alertas ───────────────────────────────────────────────
   const inactiveClients = useMemo(() => calcInactiveClients(pastAppts, 70), [pastAppts]);
 
   const overdueExpenses = useMemo(() =>
     allExpenses.filter(e => e.status === "pendente" && e.date < todayStr),
-  [allExpenses]);
-
-  const pendingCommissions = useMemo(() => {
-    // verifica commissionClosingsStore via import direto
-    try {
-      const { commissionClosingsStore } = require("@/lib/store");
-      return commissionClosingsStore.list().filter((c: any) => c.status === "pendente");
-    } catch { return []; }
-  }, []);
+  [allExpenses, todayStr]);
 
   // Comparativo semana atual vs média das 4 anteriores
   const weeklyData  = useMemo(() => calcWeeklyRevenue(allAppts, 5), [allAppts]);
@@ -190,7 +179,7 @@ export default function FinanceiroDashboardPage() {
           <TrendingUp className="w-5 h-5" style={{ color: accent }} />
           Painel Financeiro
         </h2>
-        <p className="text-sm text-muted-foreground">Baseado nos agendamentos concluídos</p>
+        <p className="text-sm text-muted-foreground">Baseado nos agendamentos da agenda</p>
       </div>
 
       {/* ── Alertas proativos ── */}
@@ -256,198 +245,157 @@ export default function FinanceiroDashboardPage() {
                   minWidth: 160,
                   ...(selectedPeriod === period ? {
                     border: `1px solid ${accent}50`,
-                    boxShadow: `0 0 20px ${accent}20`,
-                  } : {}),
+                    background: `${accent}08`,
+                  } : {})
                 }}
-                onClick={() => setSelectedPeriod(period as PeriodKey)}>
-                <p className="text-xs text-muted-foreground mb-2">{label}</p>
-                <p className="text-lg font-bold">{fmt(revenue)}</p>
-                <p className="text-xs text-muted-foreground mt-1">{count} atend. · ticket {fmt(avgTicket)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Breakdown financeiro do período selecionado ── */}
-      <div style={cardStyle}>
-        <p className="text-sm font-semibold mb-4">
-          Lucro real — {PERIOD_TABS.find(t => t.value === selectedPeriod)?.label}
-        </p>
-        <div className="space-y-2">
-          {[
-            { label: "Faturamento bruto",    value:  pStats.totalRevenue,    color: "text-foreground", sign: "" },
-            { label: "- Custo de materiais", value: -pStats.totalMaterial,   color: "text-yellow-400", sign: "−" },
-            { label: "- Comissões",          value: -pStats.totalCommissions,color: "text-orange-400", sign: "−" },
-            { label: "- Despesas pagas",     value: -totalExpenses,          color: "text-red-400",    sign: "−" },
-          ].map(({ label, value, color, sign }) => (
-            <div key={label} className="flex items-center justify-between py-1.5 border-b border-white/5">
-              <span className="text-sm text-muted-foreground">{label}</span>
-              <span className={`text-sm font-medium ${color}`}>
-                {value < 0 ? `- ${fmt(Math.abs(value))}` : fmt(value)}
-              </span>
-            </div>
-          ))}
-          <div className="flex items-center justify-between pt-3">
-            <span className="font-bold">= Lucro real</span>
-            <span className={`text-xl font-bold ${lucroReal >= 0 ? "text-green-400" : "text-red-400"}`}>
-              {fmt(lucroReal)}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Margem de lucro</span>
-            <span className={`text-sm font-medium ${margem >= 0 ? "text-green-400" : "text-red-400"}`}>
-              {margem.toFixed(1)}%
-            </span>
-          </div>
-          <div className="mt-2 flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
-              Despesas do período: <span className="font-medium">{PERIOD_TABS.find(t => t.value === selectedPeriod)?.label}</span>
-            </p>
-            <button className="text-xs underline" style={{ color: accent }} onClick={() => setLocation("/despesas")}>
-              Gerenciar →
-            </button>
-          </div>
-          {totalExpenses === 0 && (
-            <div className="mt-2 p-3 rounded-lg flex items-center gap-2"
-              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <Info className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              <p className="text-xs text-muted-foreground">
-                Sem despesas pagas neste período.{" "}
-                <button className="underline" style={{ color: accent }} onClick={() => setLocation("/despesas")}>
-                  Cadastrar despesas →
-                </button>
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Gráfico de faturamento por dia ── */}
-      <div style={cardStyle}>
-        <p className="text-sm font-semibold mb-4">Faturamento diário — últimos 30 dias</p>
-        <ResponsiveContainer width="100%" height={160}>
-          <LineChart data={revenueByDay}>
-            <XAxis dataKey="label" tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }} interval={4} />
-            <YAxis tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-            <Tooltip
-              formatter={(v: number) => [fmt(v), "Faturamento"]}
-              contentStyle={{ background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 11 }}
-            />
-            <Line type="monotone" dataKey="revenue" stroke={accent} strokeWidth={2} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* ── Por funcionário ── */}
-      {revenueByEmp.length > 0 && (
-        <div style={cardStyle}>
-          <p className="text-sm font-semibold mb-4">Por profissional — {PERIOD_TABS.find(t => t.value === selectedPeriod)?.label}</p>
-          <div className="space-y-3">
-            {revenueByEmp.map(emp => (
-              <div key={emp.id}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full" style={{ background: emp.color }} />
-                    <span className="text-sm font-medium">{emp.firstName}</span>
-                    <span className="text-xs text-muted-foreground">{emp.count} atend.</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-sm font-bold">{fmt(emp.revenue)}</span>
-                    <span className="text-xs text-muted-foreground ml-2">comissão {fmt(emp.commission)}</span>
-                  </div>
-                </div>
-                <div className="h-2 rounded-full bg-white/5 overflow-hidden">
-                  <div className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${revenueByEmp[0].revenue > 0 ? (emp.revenue / revenueByEmp[0].revenue) * 100 : 0}%`,
-                      background: emp.color,
-                    }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Serviços mais lucrativos ── */}
-      {profitServices.length > 0 && (
-        <div style={cardStyle}>
-          <p className="text-sm font-semibold mb-4">Serviços mais lucrativos</p>
-          <div className="space-y-2">
-            {profitServices.map((svc, i) => (
-              <div key={svc.serviceId} className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-4">{i + 1}</span>
-                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: svc.color }} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{svc.name}</p>
-                  <p className="text-xs text-muted-foreground">{svc.count}x · {fmt(svc.revenue)}</p>
-                </div>
-                <span className="text-sm font-bold text-green-400">{svc.margin.toFixed(0)}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Top clientes ── */}
-      {topClients.length > 0 && (
-        <div style={cardStyle}>
-          <p className="text-sm font-semibold mb-4">
-            Clientes que mais gastaram — {PERIOD_TABS.find(t => t.value === selectedPeriod)?.label}
-          </p>
-          <div className="space-y-2">
-            {topClients.map((c, i) => (
-              <div key={i} className="flex items-center gap-3 py-2 border-b border-white/5 last:border-0">
-                <span className="text-xs text-muted-foreground w-4">{i + 1}</span>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                  style={{ background: `${accent}20`, color: accent }}>
-                  {c.clientName.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{c.clientName}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {c.visitCount} visita(s) · ticket {fmt(c.avgTicket)}
-                  </p>
-                </div>
-                <span className="font-bold text-sm">{fmt(c.totalSpent)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── PROJEÇÃO ── */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <Clock className="w-4 h-4 text-amber-400" />
-          <span className="text-sm font-semibold text-amber-400 uppercase tracking-wider">Projeção</span>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-400">Apenas agendamentos futuros</span>
-        </div>
-        <div style={projStyle}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            {[
-              { label: "Esta semana",  raw: projection.week,   adj: projection.weekAdj  },
-              { label: "Este mês",     raw: projection.month,  adj: projection.monthAdj },
-              { label: "Próx. 90 dias",raw: projection.next90, adj: projection.next90 * convRate },
-            ].map(({ label, raw, adj }) => (
-              <div key={label}>
+                onClick={() => setSelectedPeriod(period)}>
                 <p className="text-xs text-muted-foreground mb-1">{label}</p>
-                <p className="text-lg font-bold text-amber-400">{fmt(adj)}</p>
-                <p className="text-xs text-muted-foreground">bruto {fmt(raw)}</p>
+                <p className="text-lg font-bold" style={{ color: selectedPeriod === period ? accent : "inherit" }}>{fmt(revenue)}</p>
+                <div className="flex items-center justify-between mt-2 text-[10px] text-muted-foreground">
+                  <span>{count} atend.</span>
+                  <span>T.M. {fmt(avgTicket)}</span>
+                </div>
               </div>
             ))}
           </div>
-          <div className="flex items-center gap-2 p-3 rounded-lg"
-            style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.12)" }}>
-            <Info className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-            <p className="text-xs text-amber-400/80">
-              Fator de conversão aplicado: <strong>{(convRate * 100).toFixed(0)}%</strong> baseado no histórico real dos últimos 90 dias
-              ({futureAppts.length} agendamentos futuros · {projection.count} agend.)
-            </p>
+        </div>
+      </div>
+
+      {/* ── Breakdown do Período ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Coluna Esquerda: Cards e Gráfico Principal */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div style={cardStyle}>
+              <div className="flex items-center gap-2 mb-2 text-muted-foreground">
+                <DollarSign className="w-4 h-4" />
+                <span className="text-xs font-medium uppercase tracking-wider">Líquido (Faturamento - Comissões)</span>
+              </div>
+              <p className="text-2xl font-bold" style={{ color: accent }}>{fmt(pStats.netRevenue)}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Faturamento bruto: {fmt(pStats.totalRevenue)}</p>
+            </div>
+            <div style={cardStyle}>
+              <div className="flex items-center gap-2 mb-2 text-muted-foreground">
+                <AlertTriangle className="w-4 h-4" />
+                <span className="text-xs font-medium uppercase tracking-wider">Lucro Real (Líquido - Despesas)</span>
+              </div>
+              <p className="text-2xl font-bold text-emerald-400">{fmt(lucroReal)}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Margem: {margem.toFixed(1)}%</p>
+            </div>
+            <div style={cardStyle}>
+              <div className="flex items-center gap-2 mb-2 text-muted-foreground">
+                <Scissors className="w-4 h-4" />
+                <span className="text-xs font-medium uppercase tracking-wider">Custo de Material</span>
+              </div>
+              <p className="text-2xl font-bold text-cyan-400">{fmt(pStats.totalMaterial)}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Dedução direta do faturamento</p>
+            </div>
+          </div>
+
+          {/* Gráfico de Faturamento 30 dias */}
+          <div style={cardStyle}>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Faturamento (Últimos 30 dias)</h3>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: accent }} />
+                <span className="text-[10px] text-muted-foreground">Receita diária</span>
+              </div>
+            </div>
+            <div className="h-[240px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={revenueByDay}>
+                  <Tooltip
+                    contentStyle={{ background: "#18181b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12 }}
+                    formatter={(v: any) => [fmt(v), "Faturamento"]}
+                  />
+                  <Line type="monotone" dataKey="revenue" stroke={accent} strokeWidth={3} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Ranking de Funcionários */}
+          <div style={cardStyle}>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Ranking por Profissional</h3>
+            <div className="space-y-4">
+              {revenueByEmp.map((emp, i) => (
+                <div key={emp.id} className="flex items-center gap-4">
+                  <span className="text-xs font-bold text-muted-foreground w-4">{i + 1}°</span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-sm font-semibold">{emp.name}</span>
+                      <span className="text-sm font-bold">{fmt(emp.revenue)}</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full"
+                        style={{
+                          width: `${(emp.revenue / (revenueByEmp[0]?.revenue || 1)) * 100}%`,
+                          backgroundColor: emp.color
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Coluna Direita: Projeção e Top Clientes */}
+        <div className="space-y-6">
+          {/* Projeção */}
+          <div style={projStyle}>
+            <div className="flex items-center gap-2 mb-4 text-amber-400">
+              <TrendingUp className="w-4 h-4" />
+              <h3 className="text-xs font-bold uppercase tracking-wider">Projeção de Faturamento</h3>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <p className="text-[10px] text-amber-400/60 uppercase font-bold">Próximos 7 dias</p>
+                <p className="text-2xl font-bold text-amber-400">{fmt(projection.week)}</p>
+                <p className="text-[10px] text-amber-400/60">Ajustado (histórico): {fmt(projection.weekAdj)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-amber-400/60 uppercase font-bold">Até fim do mês</p>
+                <p className="text-xl font-bold text-amber-400">{fmt(projection.month)}</p>
+              </div>
+              <div className="pt-3 border-t border-amber-400/10">
+                <p className="text-[10px] text-amber-400/60">Taxa de conversão: {(convRate * 100).toFixed(0)}%</p>
+                <p className="text-[10px] text-amber-400/60">{projection.count} agendamentos futuros</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Top Clientes */}
+          <div style={cardStyle}>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Top 10 Clientes</h3>
+            <div className="space-y-3">
+              {topClients.map((c, i) => (
+                <div key={i} className="flex items-center justify-between p-2 rounded-lg hover:bg-white/5 transition-colors">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{c.clientName}</p>
+                    <p className="text-[10px] text-muted-foreground">{c.visitCount} visitas</p>
+                  </div>
+                  <p className="text-sm font-bold text-primary">{fmt(c.totalSpent)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Serviços Rentáveis */}
+          <div style={cardStyle}>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Serviços Lucrativos</h3>
+            <div className="space-y-3">
+              {profitServices.map((s, i) => (
+                <div key={i} className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground truncate flex-1 pr-2">{s.name}</span>
+                  <span className="text-xs font-bold text-emerald-400">{s.margin.toFixed(0)}% margem</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
-}
+        }
