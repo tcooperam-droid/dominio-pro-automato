@@ -215,17 +215,19 @@ export default function ComissoesPage() {
       </div>
 
       {/* KPIs totais */}
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: "Faturamento total", value: fmt(totalStats.revenue) },
-          { label: "Comissões totais",  value: fmt(totalStats.commission) },
-          { label: "Atendimentos",      value: totalStats.count.toString() },
-        ].map(({ label, value }) => (
-          <div key={label} style={cardStyle}>
-            <p className="text-xs text-muted-foreground mb-1">{label}</p>
-            <p className="text-lg font-bold">{value}</p>
-          </div>
-        ))}
+      <div className="overflow-x-auto pb-2">
+        <div className="flex gap-3" style={{ minWidth: "max-content" }}>
+          {[
+            { label: "Faturamento total", value: fmt(totalStats.revenue) },
+            { label: "Comissões totais",  value: fmt(totalStats.commission) },
+            { label: "Atendimentos",      value: totalStats.count.toString() },
+          ].map(({ label, value }) => (
+            <div key={label} style={cardStyle} className="min-w-[180px]">
+              <p className="text-xs text-muted-foreground mb-2">{label}</p>
+              <p className="text-2xl font-bold">{value}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Cards por funcionário */}
