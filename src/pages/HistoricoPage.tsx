@@ -43,10 +43,15 @@ export default function HistoricoPage() {
   const [, forceUpdate] = useState(0);
 
   useEffect(() => {
+    const timeout = setTimeout(() => setLoading(false), 8000); // fallback 8s
     auditStore.fetchAll()
       .then(() => forceUpdate(n => n + 1))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch(console.warn)
+      .finally(() => {
+        clearTimeout(timeout);
+        setLoading(false);
+      });
+    return () => clearTimeout(timeout);
   }, []);
 
   const logs = useMemo(() => {
@@ -84,8 +89,8 @@ export default function HistoricoPage() {
       {logs.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
           <History className="w-12 h-12 mx-auto mb-4 opacity-30" />
-          <p className="text-lg font-medium">{loading ? "Carregando..." : "Nenhum registro encontrado"}</p>
-          <p className="text-sm mt-1">{loading ? "Buscando histórico..." : "O histórico será preenchido conforme o uso do sistema"}</p>
+          <p className="text-lg font-medium">{loading ? "Carregando..." : "Nenhum registro ainda"}</p>
+          <p className="text-sm mt-1">{loading ? "Buscando histórico..." : "O histórico de alterações será registrado conforme o uso do sistema."}</p>
         </div>
       ) : (
         <Card className="border-border bg-card/50">
@@ -122,4 +127,5 @@ export default function HistoricoPage() {
     </div>
   );
 }
+
 
