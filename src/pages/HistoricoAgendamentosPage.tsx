@@ -235,10 +235,12 @@ export default function HistoricoAgendamentosPage() {
   }, []);
 
   const employees    = useMemo(() => employeesStore.list(false), [refreshKey]);
-  const allCompleted = useMemo(() =>
-    appointmentsStore.list({}).filter(a => a.status === "completed"),
-    [refreshKey]
-  );
+  const allCompleted = useMemo(() => {
+    const now = new Date().toISOString();
+    return appointmentsStore.list({}).filter(a =>
+      a.startTime <= now && (a.totalPrice ?? 0) > 0
+    );
+  }, [refreshKey]);
 
   const grouped = useMemo(() => groupByClient(allCompleted, 3), [allCompleted]);
 
@@ -275,7 +277,7 @@ export default function HistoricoAgendamentosPage() {
             Histórico de Agendamentos
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Atendimentos concluídos — últimas 3 visitas por cliente
+            Atendimentos realizados — últimas 3 visitas por cliente
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -310,7 +312,7 @@ export default function HistoricoAgendamentosPage() {
             {search ? "Nenhum resultado encontrado" : "Nenhum atendimento concluído ainda"}
           </p>
           <p className="text-sm mt-1">
-            {!search && "Os atendimentos marcados como 'Concluído' aparecerão aqui."}
+            {!search && "Os atendimentos passados aparecerão aqui automaticamente."}
           </p>
         </div>
       ) : (
