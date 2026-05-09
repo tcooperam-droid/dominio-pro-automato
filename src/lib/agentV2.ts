@@ -106,7 +106,7 @@ interface PendingAction {
 }
 
 interface ActionPayload {
-  type: "agendar" | "cancelar" | "mover" | "concluir" | "criar_cliente" | "trocar_cliente";
+  type: "agendar" | "cancelar" | "mover" | "concluir" | "criar_cliente" | "trocar_cliente" | "recorrente";
   params: Record<string, unknown>;
 }
 
@@ -178,7 +178,7 @@ function resolveDate(raw: string): string {
 
   if (!r || r === "hoje") return today.toISOString().split("T")[0];
 
-  if (r === "amanha") {
+  if (r === "amanha" || r === "amanha de manha" || r === "amanha cedo") {
     const d = new Date(today);
     d.setDate(today.getDate() + 1);
     return d.toISOString().split("T")[0];
@@ -190,6 +190,22 @@ function resolveDate(raw: string): string {
     "segunda-feira": 1, "terca-feira": 2,
     "quarta-feira": 3, "quinta-feira": 4, "sexta-feira": 5,
   };
+
+  // "próxima segunda", "semana que vem segunda"
+  const nextWeekMatch = r.match(/^(?:proxim[ao]|semana que vem)\s+(\w+)/);
+  if (nextWeekMatch) {
+    const dayName = nextWeekMatch[1];
+    if (dayMap[dayName] !== undefined) {
+      const target = dayMap[dayName];
+      const current = today.getDay();
+      let diff = target - current;
+      if (diff <= 0) diff += 7;
+      const d = new Date(today);
+      d.setDate(today.getDate() + diff);
+      return d.toISOString().split("T")[0];
+    }
+  }
+
   if (dayMap[r] !== undefined) {
     const target = dayMap[r];
     const current = today.getDay();
@@ -200,13 +216,57 @@ function resolveDate(raw: string): string {
     return d.toISOString().split("T")[0];
   }
 
+  // "dia 15" → dia 15 do mês atual (ou próximo mês se já passou)
+  const diaNumMatch = r.match(/^dia\s+(\d{1,2})$/);
+  if (diaNumMatch) {
+    const day = parseInt(diaNumMatch[1]);
+    let d = new Date(today.getFullYear(), today.getMonth(), day);
+    if (d <= today) d = new Date(today.getFullYear(), today.getMonth() + 1, day);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  const monthMap: Record<string, number> = {
+    janeiro: 1, fevereiro: 2, marco: 3, abril: 4,
+    maio: 5, junho: 6, julho: 7, agosto: 8,
+    setembro: 9, outubro: 10, novembro: 11, dezembro: 12,
+    jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6,
+    jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12,
+  };
+
+  // "15 de maio", "15 de maio de 2026"
+  const deMesMatch = r.match(/^(\d{1,2})\s+de\s+(\w+)(?:\s+de\s+(\d{4}))?$/);
+  if (deMesMatch) {
+    const day = parseInt(deMesMatch[1]);
+    const monthName = deMesMatch[2];
+    const month = monthMap[monthName];
+    if (month) {
+      const year = deMesMatch[3] ? parseInt(deMesMatch[3]) : today.getFullYear();
+      const d = new Date(year, month - 1, day);
+      if (d.getMonth() !== month - 1 || d.getDate() !== day) return today.toISOString().split("T")[0];
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+  }
+
+  // "dia 15 de maio", "dia 15 de maio de 2026"
+  const diaDeMesMatch = r.match(/^dia\s+(\d{1,2})\s+de\s+(\w+)(?:\s+de\s+(\d{4}))?$/);
+  if (diaDeMesMatch) {
+    const day = parseInt(diaDeMesMatch[1]);
+    const monthName = diaDeMesMatch[2];
+    const month = monthMap[monthName];
+    if (month) {
+      const year = diaDeMesMatch[3] ? parseInt(diaDeMesMatch[3]) : today.getFullYear();
+      const d = new Date(year, month - 1, day);
+      if (d.getMonth() !== month - 1 || d.getDate() !== day) return today.toISOString().split("T")[0];
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+  }
+
   if (/^\d{1,2}\/\d{1,2}/.test(r)) {
     const [dd, mm, yy] = r.split("/");
     const year = yy ? (parseInt(yy) < 100 ? 2000 + parseInt(yy) : parseInt(yy)) : today.getFullYear();
     const month = parseInt(mm);
     const day = parseInt(dd);
     const d = new Date(year, month - 1, day);
-    // Validar data (ex: 31/02 é inválido)
     if (d.getMonth() !== month - 1 || d.getDate() !== day) return today.toISOString().split("T")[0];
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
@@ -568,11 +628,27 @@ async function gatherData(msg: string, history: AgentMessage[] = []): Promise<st
     parts.push(`Total clientes cadastrados: ${totalStr}. Use busca por nome para localizar.`);
   }
 
-  // Se menciona data específica
+  // Se menciona data específica — detectar múltiplos formatos
   const fullQ = fullContext.toLowerCase();
-  const dateMatch = fullQ.match(
-    /\b(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|amanha|amanhã|segunda|terca|terça|quarta|quinta|sexta|sabado|sábado|domingo)\b/i
+
+  // Regex expandida para capturar: DD/MM[/YYYY], dias da semana, amanha, "dia X", "X de mês [de YYYY]"
+  const monthNames = "janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez";
+  const dateRegex = new RegExp(
+    `\\b(` +
+    `\\d{1,2}\\/\\d{1,2}(?:\\/\\d{2,4})?` +          // DD/MM ou DD/MM/YYYY
+    `|amanha|amanhã` +                                  // amanhã
+    `|segunda(?:-feira)?|ter[cç]a(?:-feira)?` +         // dias semana
+    `|quarta(?:-feira)?|quinta(?:-feira)?` +
+    `|sexta(?:-feira)?|s[aá]bado|domingo` +
+    `|pr[oó]xim[ao]\\s+(?:segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)(?:-feira)?` + // próxima X
+    `|dia\\s+\\d{1,2}(?:\\s+de\\s+(?:${monthNames})(?:\\s+de\\s+\\d{4})?)?` + // dia 15 [de mês [de YYYY]]
+    `|\\d{1,2}\\s+de\\s+(?:${monthNames})(?:\\s+de\\s+\\d{4})?` +              // 15 de maio [de YYYY]
+    `|\\d{4}-\\d{2}-\\d{2}` +                          // YYYY-MM-DD
+    `)\\b`,
+    "i"
   );
+
+  const dateMatch = fullQ.match(dateRegex);
   if (dateMatch) parts.push(getApptsByDate(dateMatch[1]));
 
   // Se menciona financeiro
@@ -621,18 +697,20 @@ REGRAS:
 15. NUNCA peça confirmação mais de uma vez para o mesmo agendamento — se já confirmou, execute a ação diretamente
 16. OVERRIDE DE HORÁRIO: Se o usuário disser "agenda mesmo assim" após bloqueio de horário, execute a ação normalmente adicionando forceSchedule:true nos params. O sistema vai ignorar a restrição de horário
 17. Se o usuário ensinar "lembra que [funcionário] atende qualquer dia" ou similar, confirme e oriente que na próxima vez o agendamento será liberado automaticamente
+18. AGENDAMENTO RECORRENTE: quando o usuário usar expressões como "todo sábado", "toda segunda", "toda semana", "semanalmente", "repetir toda semana", "sempre às X às HH:MM" — use a ação recorrente. Se o usuário não informar quantas semanas, pergunte antes de agir (ou use 4 semanas como padrão se o contexto for claro)
 
 AÇÕES — inclua ao final da resposta quando executar operação:
 \`\`\`action
 {"type":"agendar","params":{"clientName":"Nome Exato","serviceId":45,"employeeId":2,"date":"hoje","time":"14:00"}}
 \`\`\`
-Tipos: agendar | cancelar | mover | concluir | criar_cliente | trocar_cliente
+Tipos: agendar | cancelar | mover | concluir | criar_cliente | trocar_cliente | recorrente
 - agendar: {clientName, serviceId, employeeId, date, time}
 - cancelar: {appointmentId}
 - mover: {appointmentId, newDate, newTime}
 - concluir: {appointmentId}
 - criar_cliente: {name, phone?} — use quando cliente não existe no sistema
 - trocar_cliente: {appointmentId, newClientName} — troca o cliente de um agendamento existente
+- recorrente: {clientName, serviceId, employeeId, dayOfWeek, time, weeks?, startDate?} — cria N agendamentos semanais
 
 IMPORTANTE:
 - NÃO inclua clientId — o SISTEMA resolve o cliente pelo nome automaticamente
@@ -645,7 +723,10 @@ IMPORTANTE:
 - NUNCA confirme operação antes do retorno do sistema
 - NUNCA diga "realizando", "vou agendar", "efetuando" sem incluir o bloco action — isso engana o usuário
 - Se tiver todos os dados necessários, inclua o bloco action IMEDIATAMENTE sem anunciar o que vai fazer
-- date pode ser: "hoje", "amanha", "DD/MM", dia da semana, ou YYYY-MM-DD
+- time pode ser: "14:00", "14h", "14h30", "9:30", "9" (só o número → vira HH:00)
+- date pode ser: "hoje", "amanha", "DD/MM", "DD/MM/YYYY", dia da semana, "próxima sexta", "dia 15", "15 de maio", "15 de maio de 2026", ou YYYY-MM-DD
+- SEMPRE extraia a data e hora exatas da mensagem do usuário — nunca assuma "hoje" se o usuário especificou outra data
+- Para recorrente: dayOfWeek deve ser o nome em pt-BR (domingo, segunda, terca, quarta, quinta, sexta, sabado); weeks máx 12; startDate opcional (padrão: hoje)
 ${buildMemoryPrompt()}`;
 }
 
@@ -774,6 +855,137 @@ async function executeSwapClient(params: Record<string, unknown>): Promise<strin
   return `Cliente trocado com sucesso!\nAgendamento ID:${apptId}\nNovo cliente: ${client.name}`;
 }
 
+async function executeRecurring(params: Record<string, unknown>): Promise<string> {
+  const clientName  = params.clientName  ? String(params.clientName).trim()  : null;
+  const serviceId   = params.serviceId   != null ? Number(params.serviceId)   : null;
+  const employeeId  = params.employeeId  != null ? Number(params.employeeId)  : null;
+  const dayOfWeekRaw = params.dayOfWeek  ? String(params.dayOfWeek)           : null;
+  const time        = params.time        ? String(params.time)                 : null;
+  const weeks       = params.weeks       ? Math.min(Math.max(Number(params.weeks), 1), 12) : 4;
+  const startDateRaw = params.startDate  ? String(params.startDate)           : "hoje";
+
+  if (!clientName || !serviceId || !employeeId || !dayOfWeekRaw || !time) {
+    return "Dados incompletos para agendamento recorrente. Informe: cliente, serviço, profissional, dia da semana e horário.";
+  }
+
+  const resolvedTime = normalizeTime(time);
+  if (!resolvedTime) return `Horário inválido: "${time}". Use HH:MM.`;
+
+  // Resolver dia da semana alvo
+  const dayNameMap: Record<string, number> = {
+    domingo: 0, segunda: 1, terca: 2, terça: 2,
+    quarta: 3, quinta: 4, sexta: 5, sabado: 6, sábado: 6,
+  };
+  const dayNorm = dayOfWeekRaw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const targetDow = dayNameMap[dayNorm];
+  if (targetDow === undefined) return `Dia da semana inválido: "${dayOfWeekRaw}". Use: domingo, segunda, terça, quarta, quinta, sexta ou sábado.`;
+
+  // Localizar cliente
+  const allClients = await clientsStore.ensureLoaded();
+  const nameLower = clientName.toLowerCase();
+  let client = allClients.find(c => c.name.toLowerCase() === nameLower)
+    ?? allClients.find(c => c.name.toLowerCase().includes(nameLower) || nameLower.includes(c.name.toLowerCase()))
+    ?? null;
+  if (!client) {
+    try {
+      const found = await clientsStore.search(clientName, { limit: 5 });
+      if (found.length === 1) client = found[0];
+      else if (found.length > 1) {
+        return `Encontrei vários clientes com "${clientName}": ${found.slice(0, 5).map(c => `${c.name} (ID:${c.id})`).join(", ")}. Qual deles?`;
+      }
+    } catch { /* ignorar */ }
+  }
+  if (!client) return `Cliente "${clientName}" não encontrado no sistema.`;
+
+  // Localizar serviço e profissional
+  const svc = servicesStore.list(true).find(s => s.id === serviceId) ?? null;
+  if (!svc) return `Serviço ID:${serviceId} não encontrado.`;
+
+  const emp = employeesStore.list(true).find(e => e.id === employeeId) ?? null;
+  if (!emp) return `Profissional ID:${employeeId} não encontrado.`;
+
+  // Calcular datas — avançar até o próximo targetDow a partir de startDate
+  const startBase = resolveDate(startDateRaw);
+  const [bYear, bMonth, bDay] = startBase.split("-").map(Number);
+  const cursor = new Date(bYear, bMonth - 1, bDay);
+  while (cursor.getDay() !== targetDow) cursor.setDate(cursor.getDate() + 1);
+
+  const durationMinutes = svc.durationMinutes > 0 ? svc.durationMinutes : 60;
+  const [rHour, rMin] = resolvedTime.split(":").map(Number);
+
+  const created: number[] = [];
+  const skipped: string[] = [];
+
+  for (let i = 0; i < weeks; i++) {
+    const dateStr = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+    const startDt = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), rHour, rMin, 0);
+    const endDt = new Date(startDt.getTime() + durationMinutes * 60_000);
+    const startTime = startDt.toISOString().slice(0, 19);
+    const endTime   = endDt.toISOString().slice(0, 19);
+
+    // Verificar conflito para este profissional neste horário
+    const conflict = appointmentsStore.list({ date: dateStr }).find(a => {
+      if (a.employeeId !== emp.id || a.status === "cancelled") return false;
+      const aS = new Date(a.startTime).getTime();
+      const aE = new Date(a.endTime).getTime();
+      return startDt.getTime() < aE && endDt.getTime() > aS;
+    });
+
+    if (conflict) {
+      const ch = conflict.startTime?.split("T")[1]?.slice(0, 5) ?? "";
+      skipped.push(`${dateStr} (conflito: ${conflict.clientName} às ${ch})`);
+    } else {
+      const serviceData: AppointmentService = {
+        serviceId: svc.id,
+        name: svc.name,
+        price: svc.price,
+        durationMinutes: svc.durationMinutes ?? 60,
+        color: svc.color ?? "#ec4899",
+        materialCostPercent: svc.materialCostPercent ?? 0,
+      };
+      try {
+        const appt = await appointmentsStore.create({
+          clientName: client.name,
+          clientId: client.id,
+          employeeId: emp.id,
+          startTime,
+          endTime,
+          status: "scheduled",
+          totalPrice: svc.price,
+          notes: null,
+          paymentStatus: null,
+          groupId: null,
+          services: [serviceData],
+        });
+        if (appt?.id) created.push(appt.id);
+        else skipped.push(`${dateStr} (erro ao salvar)`);
+      } catch (err) {
+        skipped.push(`${dateStr} (erro: ${err instanceof Error ? err.message : "desconhecido"})`);
+      }
+    }
+
+    cursor.setDate(cursor.getDate() + 7);
+  }
+
+  window.dispatchEvent(new Event("store_updated"));
+  refreshPreferences();
+
+  const dayLabels: Record<number, string> = {
+    0: "domingo", 1: "segunda-feira", 2: "terça-feira",
+    3: "quarta-feira", 4: "quinta-feira", 5: "sexta-feira", 6: "sábado",
+  };
+  const lines = [
+    `Agendamento recorrente criado!`,
+    `Cliente: ${client.name}`,
+    `Serviço: ${svc.name} (${durationMinutes}min)`,
+    `Profissional: ${emp.name}`,
+    `Frequência: toda(o) ${dayLabels[targetDow]} às ${resolvedTime}`,
+    `Agendamentos criados: ${created.length} (IDs: ${created.join(", ")})`,
+  ];
+  if (skipped.length > 0) lines.push(`Datas puladas: ${skipped.join("; ")}`);
+  return lines.join("\n");
+}
+
 async function executeAction(action: ActionPayload): Promise<string> {
   if (!action || !action.type || !action.params) {
     return "Ação inválida: estrutura incompleta. Tente reformular o pedido.";
@@ -786,6 +998,7 @@ async function executeAction(action: ActionPayload): Promise<string> {
     if (type === "concluir") return await executeComplete(params);
     if (type === "criar_cliente") return await executeCreateClient(params);
     if (type === "trocar_cliente") return await executeSwapClient(params);
+    if (type === "recorrente") return await executeRecurring(params);
     return `Ação desconhecida: "${type}".`;
   } catch (err) {
     console.error("[AgentV2] Erro em executeAction:", { type, params, err });
@@ -1349,3 +1562,4 @@ export async function testAgentV2Connection(
     };
   }
 }
+
