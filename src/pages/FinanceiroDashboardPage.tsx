@@ -4,7 +4,10 @@
  * Realizado vs Projeção nunca se misturam.
  */
 import { useState, useMemo } from "react";
-import { format, parseISO, subDays, differenceInDays } from "date-fns";
+import {
+  format, parseISO, subDays, subWeeks,
+  startOfWeek, endOfWeek, startOfMonth, endOfMonth, addDays,
+} from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useLocation } from "wouter";
 import {
@@ -14,7 +17,7 @@ import {
 import {
   TrendingUp, TrendingDown, DollarSign, Users, Scissors,
   AlertCircle, AlertTriangle, CheckCircle, Info, ChevronRight,
-  Calendar, Clock,
+  Calendar, Clock, Award,
 } from "lucide-react";
 import { appointmentsStore, employeesStore, expensesStore } from "@/lib/store";
 import {
@@ -36,59 +39,101 @@ function fmtPct(v: number) {
   return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
 
-type PeriodKey = "hoje" | "semana" | "mes" | "trimestre" | "ano";
+type PeriodKey = "hoje" | "semana" | "semana_passada" | "mes" | "trimestre" | "ano";
+type FuturePeriod = "semana" | "mes" | "trimestre";
+
+function getPeriodRange(key: PeriodKey) {
+  if (key === "semana_passada") {
+    const lw = subWeeks(new Date(), 1);
+    return {
+      start: startOfWeek(lw, { weekStartsOn: 1 }),
+      end:   endOfWeek(lw,   { weekStartsOn: 1 }),
+      label: "Sem. passada",
+    };
+  }
+  return getPeriodDates(key as any);
+}
+
+function getFutureRange(period: FuturePeriod) {
+  const now = new Date();
+  switch (period) {
+    case "semana":    return { start: now, end: endOfWeek(now, { weekStartsOn: 1 }), label: "Esta semana" };
+    case "mes":       return { start: now, end: endOfMonth(now), label: "Este mês" };
+    case "trimestre": return { start: now, end: addDays(now, 90), label: "Próximos 90 dias" };
+  }
+}
 
 const PERIOD_TABS: { value: PeriodKey; label: string }[] = [
-  { value: "hoje",      label: "Hoje"    },
+  { value: "hoje",           label: "Hoje"       },
+  { value: "semana",         label: "Semana"     },
+  { value: "semana_passada", label: "Sem. passada" },
+  { value: "mes",            label: "Mês"        },
+  { value: "trimestre",      label: "90 dias"    },
+  { value: "ano",            label: "Ano"        },
+];
+
+const FUTURE_TABS: { value: FuturePeriod; label: string }[] = [
   { value: "semana",    label: "Semana"  },
-  { value: "mes",       label: "Mês"     },
+  { value: "mes",       label: "Mês"    },
   { value: "trimestre", label: "90 dias" },
-  { value: "ano",       label: "Ano"     },
 ];
 
 export default function FinanceiroDashboardPage() {
   const accent = getAccent();
   const [, setLocation] = useLocation();
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodKey>("mes");
-  const [showInactive, setShowInactive] = useState(false);
+  const [futurePeriod, setFuturePeriod]     = useState<FuturePeriod>("semana");
+  const [showInactive, setShowInactive]     = useState(false);
 
-  const allAppts   = useMemo(() => appointmentsStore.list({}), []);
-  const employees  = useMemo(() => employeesStore.list(true), []);
+  const allAppts    = useMemo(() => appointmentsStore.list({}), []);
+  const employees   = useMemo(() => employeesStore.list(true), []);
   const allExpenses = useMemo(() => expensesStore.list(), []);
 
-  const now = new Date();
+  const now      = new Date();
   const todayStr = now.toISOString().slice(0, 10);
 
-  // ── KPIs dos 5 períodos simultâneos ──────────────────────
+  // ── Ranges ───────────────────────────────────────────────
+  const { start: pStart, end: pEnd, label: pLabel } = useMemo(
+    () => getPeriodRange(selectedPeriod),
+    [selectedPeriod]
+  );
+  const periodEnd = pEnd < now ? pEnd : now; // para períodos passados usar pEnd, actuais usar now
+
+  const { start: fStart, end: fEnd, label: fLabel } = useMemo(
+    () => getFutureRange(futurePeriod),
+    [futurePeriod]
+  );
+
+  const isActive = (a: any) =>
+    !["cancelled", "no_show"].includes(a.status) && toNum(a.totalPrice) > 0.01;
+
+  // ── KPIs dos 6 períodos simultâneos ──────────────────────
   const multiPeriodStats = useMemo(() => {
     return PERIOD_TABS.map(({ value, label }) => {
-      const { start, end } = getPeriodDates(value as any);
+      const { start, end } = getPeriodRange(value);
+      const cutoff = end < now ? end : now;
       const appts = allAppts.filter(a => {
         try {
           const d = parseISO(a.startTime);
-          return d >= start && d <= end && d <= now && toNum(a.totalPrice) > 0;
+          return d >= start && d <= cutoff && toNum(a.totalPrice) > 0;
         } catch { return false; }
       });
-      const revenue = appts.reduce((s, a) => s + toNum(a.totalPrice), 0);
-      const count   = appts.length;
-      return { period: value, label, revenue, count, avgTicket: count > 0 ? revenue / count : 0 };
+      const revenue   = appts.reduce((s, a) => s + toNum(a.totalPrice), 0);
+      const count     = appts.length;
+      const avgTicket = count > 0 ? revenue / count : 0;
+      return { period: value, label, revenue, count, avgTicket };
     });
   }, [allAppts]);
 
-  // ── Breakdown do período selecionado ─────────────────────
-  const { start: pStart, end: pEnd } = useMemo(
-    () => getPeriodDates(selectedPeriod as any),
-    [selectedPeriod]
-  );
-
+  // ── Realizado no período seleccionado ────────────────────
   const periodAppts = useMemo(
     () => allAppts.filter(a => {
       try {
         const d = parseISO(a.startTime);
-        return d >= pStart && d <= pEnd && d <= now && toNum(a.totalPrice) > 0;
+        return d >= pStart && d <= periodEnd && toNum(a.totalPrice) > 0;
       } catch { return false; }
     }),
-    [pStart, pEnd, allAppts]
+    [pStart, periodEnd, allAppts]
   );
 
   const pStats = useMemo(
@@ -98,73 +143,74 @@ export default function FinanceiroDashboardPage() {
 
   const periodExpenses = useMemo(() => {
     const s = pStart.toISOString().slice(0, 10);
-    const e = pEnd.toISOString().slice(0, 10);
+    const e = periodEnd.toISOString().slice(0, 10);
     return allExpenses.filter(ex => ex.date >= s && ex.date <= e && ex.status === "paga");
-  }, [allExpenses, pStart, pEnd]);
+  }, [allExpenses, pStart, periodEnd]);
 
-  const totalExpenses  = periodExpenses.reduce((s, e) => s + e.amount, 0);
-  const lucroReal      = pStats.totalRevenue - pStats.totalMaterial - pStats.totalCommissions - totalExpenses;
-  const margem         = pStats.totalRevenue > 0 ? (lucroReal / pStats.totalRevenue) * 100 : 0;
+  const totalExpenses = periodExpenses.reduce((s, e) => s + e.amount, 0);
+  const lucroReal     = pStats.totalRevenue - pStats.totalMaterial - pStats.totalCommissions - totalExpenses;
+  const margem        = pStats.totalRevenue > 0 ? (lucroReal / pStats.totalRevenue) * 100 : 0;
 
-  // ── Gráficos ─────────────────────────────────────────────
+  // ── Agendamentos futuros (projeção) ──────────────────────
+  const futureAppts = useMemo(() =>
+    allAppts.filter(a =>
+      isActive(a) && parseISO(a.startTime) > now && parseISO(a.startTime) <= fEnd
+    ), [allAppts, fEnd]
+  );
+
+  const futRevenue     = futureAppts.reduce((s, a) => s + toNum(a.totalPrice), 0);
+  const futCommissions = futureAppts.reduce((s, a) => {
+    const emp = employees.find(e => e.id === a.employeeId);
+    return s + (emp ? toNum(a.totalPrice) * (emp.commissionPercent / 100) : 0);
+  }, 0);
+  const futNet = futRevenue - futCommissions;
+
+  // Dias com agendamentos futuros
+  const futureDays = useMemo(() => {
+    const days = Math.ceil((fEnd.getTime() - now.getTime()) / 86400000);
+    return Array.from({ length: Math.min(days, 90) }, (_, i) => {
+      const d   = addDays(now, i + 1);
+      const key = format(d, "yyyy-MM-dd");
+      const dayAppts = futureAppts.filter(a => format(parseISO(a.startTime), "yyyy-MM-dd") === key);
+      return {
+        label:   format(d, "EEE dd/MM", { locale: ptBR }),
+        revenue: dayAppts.reduce((s, a) => s + toNum(a.totalPrice), 0),
+        count:   dayAppts.length,
+      };
+    }).filter(d => d.revenue > 0);
+  }, [futureAppts, fEnd]);
+  const maxFutDay = Math.max(...futureDays.map(d => d.revenue), 1);
+
+  // Ranking por funcionário — projeção
+  const byEmpFuture = useMemo(() =>
+    employees.map(emp => {
+      const appts   = futureAppts.filter(a => a.employeeId === emp.id);
+      const revenue = appts.reduce((s, a) => s + toNum(a.totalPrice), 0);
+      return { emp, revenue, commission: revenue * (emp.commissionPercent / 100), count: appts.length };
+    }).filter(e => e.revenue > 0).sort((a, b) => b.revenue - a.revenue),
+    [employees, futureAppts]
+  );
+
+  // ── Gráficos históricos ───────────────────────────────────
   const pastAppts = useMemo(() =>
     allAppts.filter(a => {
       try { return parseISO(a.startTime) <= now && toNum(a.totalPrice) > 0; }
       catch { return false; }
     }), [allAppts]);
 
-  const revenueByDay    = useMemo(() => calcRevenueByDay(pastAppts, 30), [pastAppts]);
-  const revenueByEmp    = useMemo(() => calcRevenueByEmployee(periodAppts, employees), [periodAppts, employees]);
-  const topClients      = useMemo(() => calcTopClients(periodAppts, 10), [periodAppts]);
-  const profitServices  = useMemo(() => calcMostProfitableServices(pastAppts).slice(0, 8), [pastAppts]);
+  const revenueByDay   = useMemo(() => calcRevenueByDay(pastAppts, 30), [pastAppts]);
+  const revenueByEmp   = useMemo(() => calcRevenueByEmployee(periodAppts, employees), [periodAppts, employees]);
+  const topClients     = useMemo(() => calcTopClients(periodAppts, 10), [periodAppts]);
+  const profitServices = useMemo(() => calcMostProfitableServices(pastAppts).slice(0, 8), [pastAppts]);
 
-  // ── Projeção ─────────────────────────────────────────────
-  const convRate = useMemo(() => calcConversionRate(pastAppts), [pastAppts]);
-
-  const futureAppts = useMemo(() => allAppts.filter(a =>
-    ["scheduled", "confirmed"].includes(a.status) && parseISO(a.startTime) > now
-  ), [allAppts]);
-
-  const projection = useMemo(() => {
-    const thisWeekEnd = new Date(now.getTime() + 7 * 86400000);
-    const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    const next90 = new Date(now.getTime() + 90 * 86400000);
-
-    const sumFuture = (end: Date) =>
-      futureAppts
-        .filter(a => parseISO(a.startTime) <= end)
-        .reduce((s, a) => s + toNum(a.totalPrice), 0);
-
-    return {
-      week:    sumFuture(thisWeekEnd),
-      month:   sumFuture(thisMonthEnd),
-      next90:  sumFuture(next90),
-      weekAdj: sumFuture(thisWeekEnd) * convRate,
-      monthAdj:sumFuture(thisMonthEnd) * convRate,
-      count:   futureAppts.length,
-    };
-  }, [futureAppts, convRate]);
-
-  // ── Alertas ───────────────────────────────────────────────
-  const inactiveClients = useMemo(() => calcInactiveClients(pastAppts, 70), [pastAppts]);
-
-  const overdueExpenses = useMemo(() =>
-    allExpenses.filter(e => e.status === "pendente" && e.date < todayStr),
-  [allExpenses]);
-
-  const pendingCommissions = useMemo(() => {
-    // verifica commissionClosingsStore via import direto
-    try {
-      const { commissionClosingsStore } = require("@/lib/store");
-      return commissionClosingsStore.list().filter((c: any) => c.status === "pendente");
-    } catch { return []; }
-  }, []);
-
-  // Comparativo semana atual vs média das 4 anteriores
-  const weeklyData  = useMemo(() => calcWeeklyRevenue(allAppts, 5), [allAppts]);
-  const thisWeekRev = weeklyData[weeklyData.length - 1]?.revenue ?? 0;
-  const prevAvg     = weeklyData.slice(0, 4).reduce((s, w) => s + w.revenue, 0) / 4;
-  const weekVsPrev  = prevAvg > 0 ? ((thisWeekRev - prevAvg) / prevAvg) * 100 : 0;
+  // ── Alertas ──────────────────────────────────────────────
+  const convRate       = useMemo(() => calcConversionRate(pastAppts), [pastAppts]);
+  const inactiveClients= useMemo(() => calcInactiveClients(pastAppts, 70), [pastAppts]);
+  const overdueExpenses= useMemo(() => allExpenses.filter(e => e.status === "pendente" && e.date < todayStr), [allExpenses]);
+  const weeklyData     = useMemo(() => calcWeeklyRevenue(allAppts, 5), [allAppts]);
+  const thisWeekRev    = weeklyData[weeklyData.length - 1]?.revenue ?? 0;
+  const prevAvg        = weeklyData.slice(0, 4).reduce((s, w) => s + w.revenue, 0) / 4;
+  const weekVsPrev     = prevAvg > 0 ? ((thisWeekRev - prevAvg) / prevAvg) * 100 : 0;
 
   const cardStyle: React.CSSProperties = {
     background: "rgba(255,255,255,0.04)",
@@ -173,7 +219,6 @@ export default function FinanceiroDashboardPage() {
     borderRadius: 16,
     padding: 20,
   };
-
   const projStyle: React.CSSProperties = {
     background: "rgba(245,158,11,0.06)",
     border: "1px solid rgba(245,158,11,0.15)",
@@ -200,7 +245,7 @@ export default function FinanceiroDashboardPage() {
             style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}>
             <TrendingUp className="w-4 h-4 text-green-400 flex-shrink-0" />
             <p className="text-sm text-green-400">
-              Semana atual {fmtPct(weekVsPrev)} acima da média das 4 semanas anteriores 🎉
+              Semana actual {fmtPct(weekVsPrev)} acima da média das 4 semanas anteriores 🎉
             </p>
           </div>
         )}
@@ -210,9 +255,7 @@ export default function FinanceiroDashboardPage() {
             onClick={() => setShowInactive(v => !v)}>
             <div className="flex items-center gap-3">
               <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-              <p className="text-sm text-red-400">
-                {inactiveClients.length} cliente(s) sem visita há mais de 70 dias
-              </p>
+              <p className="text-sm text-red-400">{inactiveClients.length} cliente(s) sem visita há mais de 70 dias</p>
             </div>
             <ChevronRight className={`w-4 h-4 text-red-400 transition-transform ${showInactive ? "rotate-90" : ""}`} />
           </div>
@@ -240,7 +283,7 @@ export default function FinanceiroDashboardPage() {
         )}
       </div>
 
-      {/* ── REALIZADO — 5 períodos simultâneos ── */}
+      {/* ── REALIZADO — 6 períodos ── */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <CheckCircle className="w-4 h-4 text-green-400" />
@@ -269,18 +312,18 @@ export default function FinanceiroDashboardPage() {
         </div>
       </div>
 
-      {/* ── Breakdown financeiro do período selecionado ── */}
+      {/* ── Breakdown financeiro do período ── */}
       <div style={cardStyle}>
         <p className="text-sm font-semibold mb-4">
-          Lucro real — {PERIOD_TABS.find(t => t.value === selectedPeriod)?.label}
+          Lucro real — {pLabel}
         </p>
         <div className="space-y-2">
           {[
-            { label: "Faturamento bruto",    value:  pStats.totalRevenue,    color: "text-foreground", sign: "" },
-            { label: "- Custo de materiais", value: -pStats.totalMaterial,   color: "text-yellow-400", sign: "−" },
-            { label: "- Comissões",          value: -pStats.totalCommissions,color: "text-orange-400", sign: "−" },
-            { label: "- Despesas pagas",     value: -totalExpenses,          color: "text-red-400",    sign: "−" },
-          ].map(({ label, value, color, sign }) => (
+            { label: "Faturamento bruto",    value:  pStats.totalRevenue,      color: "text-foreground" },
+            { label: "- Custo de materiais", value: -pStats.totalMaterial,     color: "text-yellow-400" },
+            { label: "- Comissões",          value: -pStats.totalCommissions,  color: "text-orange-400" },
+            { label: "- Despesas pagas",     value: -totalExpenses,            color: "text-red-400"    },
+          ].map(({ label, value, color }) => (
             <div key={label} className="flex items-center justify-between py-1.5 border-b border-white/5">
               <span className="text-sm text-muted-foreground">{label}</span>
               <span className={`text-sm font-medium ${color}`}>
@@ -290,23 +333,15 @@ export default function FinanceiroDashboardPage() {
           ))}
           <div className="flex items-center justify-between pt-3">
             <span className="font-bold">= Lucro real</span>
-            <span className={`text-xl font-bold ${lucroReal >= 0 ? "text-green-400" : "text-red-400"}`}>
-              {fmt(lucroReal)}
-            </span>
+            <span className={`text-xl font-bold ${lucroReal >= 0 ? "text-green-400" : "text-red-400"}`}>{fmt(lucroReal)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Margem de lucro</span>
-            <span className={`text-sm font-medium ${margem >= 0 ? "text-green-400" : "text-red-400"}`}>
-              {margem.toFixed(1)}%
-            </span>
+            <span className={`text-sm font-medium ${margem >= 0 ? "text-green-400" : "text-red-400"}`}>{margem.toFixed(1)}%</span>
           </div>
           <div className="mt-2 flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
-              Despesas do período: <span className="font-medium">{PERIOD_TABS.find(t => t.value === selectedPeriod)?.label}</span>
-            </p>
-            <button className="text-xs underline" style={{ color: accent }} onClick={() => setLocation("/despesas")}>
-              Gerenciar →
-            </button>
+            <p className="text-xs text-muted-foreground">Despesas do período</p>
+            <button className="text-xs underline" style={{ color: accent }} onClick={() => setLocation("/despesas")}>Gerenciar →</button>
           </div>
           {totalExpenses === 0 && (
             <div className="mt-2 p-3 rounded-lg flex items-center gap-2"
@@ -314,16 +349,14 @@ export default function FinanceiroDashboardPage() {
               <Info className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <p className="text-xs text-muted-foreground">
                 Sem despesas pagas neste período.{" "}
-                <button className="underline" style={{ color: accent }} onClick={() => setLocation("/despesas")}>
-                  Cadastrar despesas →
-                </button>
+                <button className="underline" style={{ color: accent }} onClick={() => setLocation("/despesas")}>Cadastrar →</button>
               </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Gráfico de faturamento por dia ── */}
+      {/* ── Gráfico de faturamento diário ── */}
       <div style={cardStyle}>
         <p className="text-sm font-semibold mb-4">Faturamento diário — últimos 30 dias</p>
         <ResponsiveContainer width="100%" height={160}>
@@ -342,7 +375,7 @@ export default function FinanceiroDashboardPage() {
       {/* ── Por funcionário ── */}
       {revenueByEmp.length > 0 && (
         <div style={cardStyle}>
-          <p className="text-sm font-semibold mb-4">Por profissional — {PERIOD_TABS.find(t => t.value === selectedPeriod)?.label}</p>
+          <p className="text-sm font-semibold mb-4">Por profissional — {pLabel}</p>
           <div className="space-y-3">
             {revenueByEmp.map(emp => (
               <div key={emp.id}>
@@ -358,11 +391,10 @@ export default function FinanceiroDashboardPage() {
                   </div>
                 </div>
                 <div className="h-2 rounded-full bg-white/5 overflow-hidden">
-                  <div className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${revenueByEmp[0].revenue > 0 ? (emp.revenue / revenueByEmp[0].revenue) * 100 : 0}%`,
-                      background: emp.color,
-                    }} />
+                  <div className="h-full rounded-full transition-all" style={{
+                    width: `${revenueByEmp[0].revenue > 0 ? (emp.revenue / revenueByEmp[0].revenue) * 100 : 0}%`,
+                    background: emp.color,
+                  }} />
                 </div>
               </div>
             ))}
@@ -393,9 +425,7 @@ export default function FinanceiroDashboardPage() {
       {/* ── Top clientes ── */}
       {topClients.length > 0 && (
         <div style={cardStyle}>
-          <p className="text-sm font-semibold mb-4">
-            Clientes que mais gastaram — {PERIOD_TABS.find(t => t.value === selectedPeriod)?.label}
-          </p>
+          <p className="text-sm font-semibold mb-4">Clientes que mais gastaram — {pLabel}</p>
           <div className="space-y-2">
             {topClients.map((c, i) => (
               <div key={i} className="flex items-center gap-3 py-2 border-b border-white/5 last:border-0">
@@ -406,9 +436,7 @@ export default function FinanceiroDashboardPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{c.clientName}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {c.visitCount} visita(s) · ticket {fmt(c.avgTicket)}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{c.visitCount} visita(s) · ticket {fmt(c.avgTicket)}</p>
                 </div>
                 <span className="font-bold text-sm">{fmt(c.totalSpent)}</span>
               </div>
@@ -417,38 +445,114 @@ export default function FinanceiroDashboardPage() {
         </div>
       )}
 
-      {/* ── PROJEÇÃO ── */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <Clock className="w-4 h-4 text-amber-400" />
-          <span className="text-sm font-semibold text-amber-400 uppercase tracking-wider">Projeção</span>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-400">Apenas agendamentos futuros</span>
+      {/* ── DIVISÓRIA PROJEÇÃO ── */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px" style={{ background: "rgba(245,158,11,0.3)" }} />
+        <div className="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold text-amber-400"
+          style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)" }}>
+          <Clock className="w-3 h-3" />PROJEÇÃO FUTURA
         </div>
+        <div className="flex-1 h-px" style={{ background: "rgba(245,158,11,0.3)" }} />
+      </div>
+
+      {/* ── Selector de período futuro ── */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Clock className="w-4 h-4 text-amber-400" />
+          <span className="font-semibold text-amber-400">Projeção</span>
+          <span className="text-xs text-muted-foreground">— {fLabel}</span>
+        </div>
+        <div className="flex gap-1">
+          {FUTURE_TABS.map(t => (
+            <Button key={t.value} size="sm"
+              variant={futurePeriod === t.value ? "default" : "ghost"}
+              className="h-6 text-xs px-2"
+              onClick={() => setFuturePeriod(t.value)}>{t.label}</Button>
+          ))}
+        </div>
+      </div>
+
+      {/* Cards projeção */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div style={{ ...projStyle, borderRadius: 12 }}>
+          <p className="text-xs text-muted-foreground mb-1">Faturamento previsto</p>
+          <p className="text-xl font-bold text-amber-400">{fmt(futRevenue)}</p>
+          <p className="text-[10px] text-muted-foreground mt-1">{futureAppts.length} agendamento(s)</p>
+        </div>
+        <div style={{ ...projStyle, borderRadius: 12 }}>
+          <p className="text-xs text-muted-foreground mb-1">Líquido previsto</p>
+          <p className="text-xl font-bold text-green-400">{fmt(futNet)}</p>
+          <p className="text-[10px] text-muted-foreground mt-1">após comissões</p>
+        </div>
+        <div style={{ ...cardStyle, borderRadius: 12 }}>
+          <p className="text-xs text-muted-foreground mb-1">Total geral</p>
+          <p className="text-xl font-bold text-white">{fmt(pStats.totalRevenue + futRevenue)}</p>
+          <p className="text-[10px] text-muted-foreground mt-1">realizado + previsto</p>
+        </div>
+      </div>
+
+      {/* Agenda futura por dia */}
+      {futureDays.length > 0 && (
         <div style={projStyle}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            {[
-              { label: "Esta semana",  raw: projection.week,   adj: projection.weekAdj  },
-              { label: "Este mês",     raw: projection.month,  adj: projection.monthAdj },
-              { label: "Próx. 90 dias",raw: projection.next90, adj: projection.next90 * convRate },
-            ].map(({ label, raw, adj }) => (
-              <div key={label}>
-                <p className="text-xs text-muted-foreground mb-1">{label}</p>
-                <p className="text-lg font-bold text-amber-400">{fmt(adj)}</p>
-                <p className="text-xs text-muted-foreground">bruto {fmt(raw)}</p>
+          <p className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-amber-400" />Agenda futura
+          </p>
+          <div className="space-y-2">
+            {futureDays.map((d, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-20 capitalize">{d.label}</span>
+                <div className="flex-1 h-5 rounded overflow-hidden" style={{ background: "rgba(245,158,11,0.1)" }}>
+                  <div className="h-full rounded transition-all"
+                    style={{ width: `${(d.revenue / maxFutDay) * 100}%`, background: "rgba(245,158,11,0.6)" }} />
+                </div>
+                <span className="text-xs font-bold w-20 text-right text-amber-400">{fmt(d.revenue)}</span>
+                <span className="text-[10px] text-muted-foreground w-5">{d.count}x</span>
               </div>
             ))}
           </div>
-          <div className="flex items-center gap-2 p-3 rounded-lg"
-            style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.12)" }}>
-            <Info className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-            <p className="text-xs text-amber-400/80">
-              Fator de conversão aplicado: <strong>{(convRate * 100).toFixed(0)}%</strong> baseado no histórico real dos últimos 90 dias
-              ({futureAppts.length} agendamentos futuros · {projection.count} agend.)
-            </p>
+        </div>
+      )}
+
+      {/* Ranking por funcionário — projeção */}
+      {byEmpFuture.length > 0 && (
+        <div style={projStyle}>
+          <p className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <Award className="w-4 h-4 text-amber-400" />Ranking — Projeção
+          </p>
+          <div className="space-y-3">
+            {byEmpFuture.map((e, i) => (
+              <div key={e.emp.id} className="flex items-center gap-2">
+                <span className="text-xs font-bold text-muted-foreground w-5">{i + 1}°</span>
+                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: e.emp.color }} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium">{e.emp.name.split(" ")[0]}</span>
+                    <span className="text-sm font-bold text-amber-400">{fmt(e.revenue)}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(245,158,11,0.15)" }}>
+                    <div className="h-full rounded-full" style={{
+                      width: `${byEmpFuture[0] ? (e.revenue / byEmpFuture[0].revenue) * 100 : 0}%`,
+                      background: "rgba(245,158,11,0.7)",
+                    }} />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {e.count} agend. · comissão {fmt(e.commission)}
+                  </p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
+      )}
+
+      {/* Nota de conversão */}
+      <div className="flex items-center gap-2 p-3 rounded-lg"
+        style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.12)" }}>
+        <Info className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+        <p className="text-xs text-amber-400/80">
+          Taxa de conversão histórica: <strong>{(convRate * 100).toFixed(0)}%</strong> dos últimos 90 dias
+        </p>
       </div>
     </div>
   );
 }
-
