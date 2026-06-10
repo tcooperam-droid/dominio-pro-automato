@@ -12,9 +12,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Settings, Building2, Clock, Bell, Palette, Save, ImagePlus, Trash2, Scissors, Monitor, Zap, Shield, Eye, EyeOff, Wrench, Percent } from "lucide-react";
+import { Settings, Building2, Clock, Bell, Palette, Save, ImagePlus, Trash2, Scissors, Monitor, Zap, Shield, Eye, EyeOff, Wrench, Percent, Brain, CheckCircle2, XCircle } from "lucide-react";
 import { employeesStore } from "@/lib/store";
 import { applyAccentColor } from "@/contexts/ThemeContext";
+import { testAgentV2Connection, initAgentV2 } from "@/lib/agentV2";
 
 type BgType = "default" | "solid" | "gradient" | "image";
 
@@ -39,6 +40,7 @@ interface SalonConfig {
   bgGradientTo: string;
   bgGradientDir: string;
   bgImageUrl: string;
+  githubToken: string;
 }
 
 const DEFAULT_CONFIG: SalonConfig = {
@@ -60,6 +62,7 @@ const DEFAULT_CONFIG: SalonConfig = {
   bgGradientTo: "#1a0929",
   bgGradientDir: "135deg",
   bgImageUrl: "",
+  githubToken: "",
 };
 
 const GRADIENT_PRESETS = [
@@ -77,6 +80,30 @@ const ACCENT_COLORS = [
 
 export default function ConfiguracoesPage() {
   const [fixingWH, setFixingWH] = useState(false);
+  const [agentTest, setAgentTest] = useState<"idle" | "testing" | "ok" | "error">("idle");
+  const [agentTestMsg, setAgentTestMsg] = useState("");
+
+  const handleTestAgent = async () => {
+    const envToken = (import.meta.env as any).VITE_GITHUB_TOKEN ?? "";
+    const token = config.githubToken || envToken;
+    if (!token) {
+      setAgentTest("error");
+      setAgentTestMsg("Insira o token acima antes de testar.");
+      return;
+    }
+    setAgentTest("testing");
+    try {
+      const result = await testAgentV2Connection(token);
+      setAgentTest(result.ok ? "ok" : "error");
+      setAgentTestMsg(result.message);
+      if (result.ok) {
+        initAgentV2({ apiToken: token, model: "openai/gpt-4o-mini", salonName: config.salonName });
+      }
+    } catch (err: any) {
+      setAgentTest("error");
+      setAgentTestMsg(err?.message ?? "Erro ao testar");
+    }
+  };
 
   const handleFixWorkingHours = async () => {
     setFixingWH(true);
@@ -603,6 +630,69 @@ export default function ConfiguracoesPage() {
           <Button onClick={handleSaveAccess} className="w-full gap-2 mt-2" variant="secondary">
             <Save className="w-4 h-4" />Salvar Senhas e Acessos
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Agente IA */}
+      <Card className="border-border bg-card/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Brain className="w-4 h-4 text-primary" />Agente IA
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            O Agente IA usa a API <strong>GitHub Models</strong> (gratuita). Crie um Personal Access Token em{" "}
+            <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer" className="underline text-primary hover:opacity-80">
+              github.com/settings/tokens
+            </a>{" "}
+            com permissão <code className="px-1 py-0.5 rounded bg-secondary text-[11px]">models:read</code> e cole abaixo.
+          </p>
+          <div className="space-y-1">
+            <Label>GitHub Personal Access Token</Label>
+            <div className="relative">
+              <Input
+                type={showPwd["agent_token"] ? "text" : "password"}
+                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                value={config.githubToken}
+                onChange={e => { updateConfig("githubToken", e.target.value); setAgentTest("idle"); }}
+                className="pr-10 font-mono text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => toggleShowPwd("agent_token")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showPwd["agent_token"] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleTestAgent}
+              disabled={agentTest === "testing"}
+              className="gap-2"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              {agentTest === "testing" ? "Testando..." : "Testar conexão"}
+            </Button>
+            {agentTest === "ok" && (
+              <span className="flex items-center gap-1 text-xs text-emerald-400">
+                <CheckCircle2 className="w-3.5 h-3.5" />{agentTestMsg}
+              </span>
+            )}
+            {agentTest === "error" && (
+              <span className="flex items-center gap-1 text-xs text-red-400">
+                <XCircle className="w-3.5 h-3.5" />{agentTestMsg}
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Clique em <strong>Salvar</strong> (topo da página) após inserir o token — o agente será reativado imediatamente.
+          </p>
         </CardContent>
       </Card>
 

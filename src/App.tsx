@@ -46,25 +46,37 @@ function AppContent() {
 
   // ── INICIALIZAÇÃO DO AGENTE IA v2 ──
   useEffect(() => {
-    // O proxy /api/llm no servidor backend gerencia as credenciais da OpenAI.
-    // Não é mais necessário token do GitHub no cliente.
-    try {
-      let salonName = "Domínio Pro";
+    const initAgent = () => {
       try {
-        const cfg = localStorage.getItem("salon_config");
-        if (cfg) salonName = JSON.parse(cfg).salonName || salonName;
-      } catch {}
+        let salonName = "Domínio Pro";
+        // Prefer env var, but allow user-supplied token from localStorage to override
+        let githubToken = (import.meta.env.VITE_GITHUB_TOKEN as string) ?? "";
+        try {
+          const saved = localStorage.getItem("salon_config");
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            salonName = parsed.salonName || salonName;
+            // User-configured token takes priority over build-time env var
+            if (parsed.githubToken) githubToken = parsed.githubToken;
+          }
+        } catch {}
 
-      initAgentV2({
-        apiToken: import.meta.env.VITE_GITHUB_TOKEN ?? "",
-        model: "openai/gpt-4o-mini",
-        salonName,
-        businessContext: `${salonName} — Sistema de gestão para salões e barbearias.`,
-      });
-      console.info("[App] Agente IA v2 inicializado.");
-    } catch (err) {
-      console.error("Erro ao inicializar Agente IA:", err);
-    }
+        initAgentV2({
+          apiToken: githubToken,
+          model: "openai/gpt-4o-mini",
+          salonName,
+          businessContext: `${salonName} — Sistema de gestão para salões e barbearias.`,
+        });
+        console.info("[App] Agente IA v2 inicializado.");
+      } catch (err) {
+        console.error("Erro ao inicializar Agente IA:", err);
+      }
+    };
+
+    initAgent();
+    // Re-initialize whenever the user saves settings (token/salon name change)
+    window.addEventListener("salon_config_updated", initAgent);
+    return () => window.removeEventListener("salon_config_updated", initAgent);
   }, []);
 
   return (

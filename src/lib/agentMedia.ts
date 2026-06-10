@@ -12,11 +12,22 @@
 const LLM_ENDPOINT = "https://models.github.ai/inference/chat/completions";
 
 function getToken(): string {
-  const t = import.meta.env.VITE_GITHUB_TOKEN as string | undefined;
-  if (!t) {
-    throw new Error("GitHub token ausente. Configure VITE_GITHUB_TOKEN no .env");
-  }
-  return t;
+  // 1. Build-time env var (Vercel / local .env)
+  const envToken = import.meta.env.VITE_GITHUB_TOKEN as string | undefined;
+  if (envToken) return envToken;
+
+  // 2. Runtime fallback: user-configured token stored in localStorage
+  try {
+    const saved = localStorage.getItem("salon_config");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.githubToken) return parsed.githubToken as string;
+    }
+  } catch {}
+
+  throw new Error(
+    "GitHub token não configurado. Acesse Configurações → Agente IA e insira seu token.",
+  );
 }
 
 // ─── Vision ────────────────────────────────────────────────

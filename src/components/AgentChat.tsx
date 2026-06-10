@@ -26,6 +26,72 @@ interface ChatMessage {
 
 // ─── Helpers ───────────────────────────────────────────────
 
+function parseInline(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4)
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2)
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    if (part.startsWith("`") && part.endsWith("`") && part.length > 2)
+      return (
+        <code key={i} className="px-1 py-0.5 rounded text-[11px] bg-white/10 font-mono">
+          {part.slice(1, -1)}
+        </code>
+      );
+    return part;
+  });
+}
+
+function renderMarkdown(text: string) {
+  const lines = text.split("\n");
+  const elements: JSX.Element[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      elements.push(<div key={i} className="h-1" />);
+      i++; continue;
+    }
+    // Headers
+    if (trimmed.startsWith("### ")) {
+      elements.push(<p key={i} className="font-semibold mt-1.5">{parseInline(trimmed.slice(4))}</p>);
+      i++; continue;
+    }
+    if (trimmed.startsWith("## ") || trimmed.startsWith("# ")) {
+      const off = trimmed.startsWith("# ") ? 2 : 3;
+      elements.push(<p key={i} className="font-bold mt-2">{parseInline(trimmed.slice(off))}</p>);
+      i++; continue;
+    }
+    // Bullet list
+    if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) {
+      elements.push(
+        <div key={i} className="flex gap-1.5 items-start">
+          <span className="mt-[3px] opacity-50 shrink-0 text-[10px]">●</span>
+          <span>{parseInline(trimmed.slice(2))}</span>
+        </div>,
+      );
+      i++; continue;
+    }
+    // Numbered list
+    const numMatch = trimmed.match(/^(\d+)\.\s(.+)$/);
+    if (numMatch) {
+      elements.push(
+        <div key={i} className="flex gap-1.5 items-start">
+          <span className="opacity-50 shrink-0 min-w-[1.2em]">{numMatch[1]}.</span>
+          <span>{parseInline(numMatch[2])}</span>
+        </div>,
+      );
+      i++; continue;
+    }
+    // Normal line
+    elements.push(<p key={i}>{parseInline(trimmed)}</p>);
+    i++;
+  }
+  return <div className="space-y-0.5 leading-relaxed">{elements}</div>;
+}
+
 function getAccent(): string {
   try {
     const s = localStorage.getItem("salon_config");
@@ -452,9 +518,7 @@ export default function AgentChat() {
                         }
                   }
                 >
-                  {msg.content.split("\n").map((line, i) => (
-                    <p key={i} className={i > 0 ? "mt-1" : ""}>{line}</p>
-                  ))}
+                  {renderMarkdown(msg.content)}
                 </div>
                 {/* Feedback buttons — apenas em mensagens do agente */}
                 {msg.role === "agent" && msg.userMessage && (
