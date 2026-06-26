@@ -6,8 +6,9 @@
  */
 import React, { useMemo } from "react";
 import { useLocation } from "wouter";
-import { format, differenceInYears, formatDistanceToNow, isBefore, startOfDay } from "date-fns";
+import { differenceInYears, formatDistanceToNow, isBefore, startOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { safeDate, safeFmt } from "@/lib/utils";
 import {
   X, Phone, Mail, MapPin, Calendar, Pencil, Clock,
   Star, TrendingUp, Hash, CreditCard, ExternalLink,
@@ -30,9 +31,9 @@ function deriveStatus(apptStatus: string, startTime: string) {
   if (apptStatus === "cancelled") return "cancelled";
   if (apptStatus === "no_show")   return "no_show";
   if (apptStatus === "in_progress") return "in_progress";
-  const now = new Date();
-  const start = new Date(startTime);
-  return isBefore(start, now) ? "completed" : "scheduled";
+  const start = safeDate(startTime);
+  if (!start) return "scheduled";
+  return isBefore(start, new Date()) ? "completed" : "scheduled";
 }
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
@@ -62,17 +63,16 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
         (a.clientId != null && a.clientId === client.id) ||
         a.clientName?.trim().toLowerCase() === client.name.trim().toLowerCase()
       )
-      .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+      .sort((a, b) => (safeDate(b.startTime)?.getTime() ?? 0) - (safeDate(a.startTime)?.getTime() ?? 0));
   }, [client]);
 
   // "Concluído" = data passada + não cancelado/faltou — independente do caixa
   const now = new Date();
   const pastDone = useMemo(
-    () => appts.filter(a =>
-      isBefore(new Date(a.startTime), now) &&
-      a.status !== "cancelled" &&
-      a.status !== "no_show"
-    ),
+    () => appts.filter(a => {
+      const d = safeDate(a.startTime);
+      return d != null && isBefore(d, now) && a.status !== "cancelled" && a.status !== "no_show";
+    }),
     [appts]
   );
 
@@ -81,11 +81,10 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
   const lastVisit  = pastDone[0]?.startTime ?? null;
 
   // Próximo = data futura e não cancelado
-  const nextVisit = appts.find(a =>
-    !isBefore(new Date(a.startTime), startOfDay(now)) &&
-    a.status !== "cancelled" &&
-    a.status !== "no_show"
-  );
+  const nextVisit = appts.find(a => {
+    const d = safeDate(a.startTime);
+    return d != null && !isBefore(d, startOfDay(now)) && a.status !== "cancelled" && a.status !== "no_show";
+  });
 
   const serviceCount = useMemo(() => {
     const map: Record<string, number> = {};
@@ -100,19 +99,16 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
   const favoriteService = serviceCount[0] ?? null;
 
   const age = client.birthDate
-    ? differenceInYears(new Date(), new Date(client.birthDate + "T12:00:00"))
+    ? (() => { const d = safeDate(client.birthDate + "T12:00:00"); return d ? differenceInYears(new Date(), d) : null; })()
     : null;
 
-  const birthdayFmt = client.birthDate
-    ? format(new Date(client.birthDate + "T12:00:00"), "dd/MM/yyyy")
-    : null;
+  const birthdayFmt = safeFmt(client.birthDate ? client.birthDate + "T12:00:00" : null, "dd/MM/yyyy");
 
-  const memberSince = client.createdAt
-    ? format(new Date(client.createdAt), "MMM yyyy", { locale: ptBR })
-    : null;
+  const memberSince = safeFmt(client.createdAt, "MMM yyyy", { locale: ptBR });
 
   function goToAgenda(startTime: string) {
-    const date = format(new Date(startTime), "yyyy-MM-dd");
+    const date = safeFmt(startTime, "yyyy-MM-dd");
+    if (date === "—") return;
     onClose();
     setLocation(`/agenda?date=${date}`);
   }
@@ -150,7 +146,7 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
             </Avatar>
             <div className="flex-1 min-w-0">
               <h3 className="text-lg font-bold leading-tight">{client.name}</h3>
-              {memberSince && (
+              {client.createdAt && memberSince !== "—" && (
                 <p className="text-xs text-muted-foreground mt-0.5">Cliente desde {memberSince}</p>
               )}
               <div className="mt-2 space-y-1.5">
@@ -166,7 +162,7 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
                     <span className="truncate">{client.email}</span>
                   </a>
                 )}
-                {birthdayFmt && (
+                {client.birthDate && birthdayFmt !== "—" && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Calendar className="w-3.5 h-3.5 shrink-0 text-primary" />
                     {birthdayFmt}{age !== null ? ` · ${age} anos` : ""}
@@ -211,7 +207,7 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
             />
             <StatCard
               icon={<Calendar className="w-4 h-4" />}
-              value={lastVisit ? formatDistanceToNow(new Date(lastVisit), { locale: ptBR, addSuffix: true }) : "—"}
+              value={lastVisit && safeDate(lastVisit) ? formatDistanceToNow(safeDate(lastVisit)!, { locale: ptBR, addSuffix: true }) : "—"}
               label="Última visita"
               color="text-orange-400"
               small
@@ -228,7 +224,7 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-medium text-blue-400">Próximo agendamento</p>
                 <p className="text-sm font-semibold">
-                  {format(new Date(nextVisit.startTime), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                  {safeFmt(nextVisit.startTime, "dd/MM/yyyy HH:mm", { locale: ptBR })}
                 </p>
                 {nextVisit.services && nextVisit.services.length > 0 && (
                   <p className="text-xs text-muted-foreground truncate">
@@ -315,7 +311,7 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="text-xs text-muted-foreground">
-                                {format(new Date(appt.startTime), "dd/MM/yyyy · HH:mm", { locale: ptBR })}
+                                {safeFmt(appt.startTime, "dd/MM/yyyy · HH:mm", { locale: ptBR })}
                               </p>
                               <p className="text-sm font-semibold mt-0.5 truncate">{svcsStr}</p>
                               {emp && (
