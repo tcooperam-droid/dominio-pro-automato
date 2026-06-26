@@ -4,6 +4,7 @@
  * Suporta groupId para agrupar serviços do mesmo cliente.
  */
 import { useState, useMemo, useRef, useCallback, useEffect, memo } from "react";
+import { useSearch } from "wouter";
 import { format, addDays, subDays, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -383,7 +384,12 @@ function DragGhost({ appt, x, y }: { appt: Appointment; x: number; y: number }) 
 
 // ─── AgendaPage ───────────────────────────────────────────────────────────────
 export default function AgendaPage() {
-  const [selectedDate, setSelectedDate]   = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const search = useSearch();
+  const [selectedDate, setSelectedDate]   = useState(() => {
+    const params = new URLSearchParams(search);
+    const d = params.get("date");
+    return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : format(new Date(), "yyyy-MM-dd");
+  });
   const [modalOpen, setModalOpen]         = useState(false);
   const [editingAppt, setEditingAppt]     = useState<Appointment | null>(null);
   const [defaultEmpId, setDefaultEmpId]   = useState<number | undefined>();
