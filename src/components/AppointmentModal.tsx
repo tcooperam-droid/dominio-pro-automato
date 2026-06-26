@@ -7,6 +7,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { format, addMinutes, parseISO } from "date-fns";
+import { safeFmt } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,7 +42,6 @@ interface SelectedService {
   durationMinutes: number;
   color: string;
   materialCostPercent: number;
-  commissionMode: "cost_first" | "commission_first";
 }
 
 interface AppointmentModalProps {
@@ -144,8 +144,8 @@ export default function AppointmentModal({
       setNewClientEmail("");
       setNewClientPhone("");
       setEmployeeId(String(appointment.employeeId));
-      setApptDate(format(new Date(appointment.startTime), "yyyy-MM-dd"));
-      setStartTime(format(new Date(appointment.startTime), "HH:mm"));
+      setApptDate(safeFmt(appointment.startTime, "yyyy-MM-dd"));
+      setStartTime(safeFmt(appointment.startTime, "HH:mm"));
       setStatus(appointment.status);
       setNotes(appointment.notes ?? "");
       if (appointment.services?.length) {
@@ -158,7 +158,6 @@ export default function AppointmentModal({
             durationMinutes: svc?.durationMinutes ?? s.durationMinutes ?? 60,
             color: svc?.color ?? s.color ?? "#ec4899",
             materialCostPercent: svc?.materialCostPercent ?? s.materialCostPercent ?? 0,
-            commissionMode: svc?.commissionMode ?? s.commissionMode ?? "cost_first",
           };
         }));
       } else {
@@ -194,7 +193,6 @@ export default function AppointmentModal({
       durationMinutes: svc.durationMinutes,
       color: svc.color,
       materialCostPercent: svc.materialCostPercent ?? 0,
-      commissionMode: svc.commissionMode ?? "cost_first",
     }]);
   };
 
@@ -224,7 +222,6 @@ export default function AppointmentModal({
         durationMinutes: s.durationMinutes,
         color: s.color,
         materialCostPercent: s.materialCostPercent ?? 0,
-        commissionMode: s.commissionMode ?? "cost_first",
       })),
     };
   };
@@ -269,7 +266,6 @@ export default function AppointmentModal({
           durationMinutes: s.durationMinutes,
           color: s.color,
           materialCostPercent: s.materialCostPercent ?? 0,
-          commissionMode: s.commissionMode ?? "cost_first",
         })));
         toast.success("Últimos serviços agendados carregados automaticamente!");
       }
@@ -504,7 +500,7 @@ export default function AppointmentModal({
                               <p className="text-[9px] text-muted-foreground">total</p>
                             </div>
                             <div className="p-1.5 rounded-md bg-blue-500/10">
-                              <p className="text-sm font-bold text-blue-400">{format(new Date(ultima.startTime), "dd/MM")}</p>
+                              <p className="text-sm font-bold text-blue-400">{safeFmt(ultima.startTime, "dd/MM")}</p>
                               <p className="text-[9px] text-muted-foreground">última</p>
                             </div>
                           </div>
@@ -753,7 +749,7 @@ export default function AppointmentModal({
                   <div key={sib.id}
                     className="flex items-center gap-2 p-2 rounded-lg bg-secondary/40 border border-border text-xs">
                     <span className="flex-1 truncate font-medium">
-                      {format(new Date(sib.startTime), "HH:mm")} —{" "}
+                      {safeFmt(sib.startTime, "HH:mm")} —{" "}
                       {employees.find(e => e.id === sib.employeeId)?.name ?? `Func. #${sib.employeeId}`}
                     </span>
                     {sib.totalPrice != null && (
@@ -797,4 +793,3 @@ export default function AppointmentModal({
     </Dialog>
   );
   }
-
