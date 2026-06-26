@@ -4,6 +4,7 @@
  */
 import { useState, useMemo, useEffect } from "react";
 import { format, parseISO } from "date-fns";
+import { safeFmt } from "@/lib/utils";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -419,7 +420,7 @@ export default function CaixaPage() {
               <div>
                 <p className="font-medium text-emerald-400 text-sm">Caixa Aberto</p>
                 <p className="text-xs text-muted-foreground">
-                  Desde {format(new Date(currentSession.openedAt), "HH:mm")} —
+                  Desde {safeFmt(currentSession.openedAt, "HH:mm")} —
                   Saldo inicial: R$ {toNum(currentSession.openingBalance).toFixed(2)}
                 </p>
               </div>
@@ -1024,7 +1025,7 @@ export default function CaixaPage() {
                         {emp?.name ?? "—"} · {services}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {format(new Date(appt.startTime), "HH:mm")}
+                        {safeFmt(appt.startTime, "HH:mm")}
                         {emp && ` · comissão ${emp.commissionPercent}% = R$ ${commission.toFixed(2)}`}
                       </p>
                     </div>
@@ -1094,11 +1095,11 @@ export default function CaixaPage() {
                     <div className="flex items-center gap-4 p-3 bg-secondary/20">
                       <div className="flex-1">
                         <p className="text-sm font-semibold">
-                          {format(new Date(session.openedAt), "dd/MM/yyyy", { locale: ptBR })}
+                          {safeFmt(session.openedAt, "dd/MM/yyyy", { locale: ptBR })}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {format(new Date(session.openedAt), "HH:mm")}
-                          {session.closedAt && ` → ${format(new Date(session.closedAt), "HH:mm")}`}
+                          {safeFmt(session.openedAt, "HH:mm")}
+                          {session.closedAt && ` → ${safeFmt(session.closedAt, "HH:mm")}`}
                           {` · ${sessionEntries.length} lançamento(s)`}
                         </p>
                       </div>
