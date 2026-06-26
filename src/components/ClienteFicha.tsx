@@ -1,13 +1,16 @@
 /**
  * ClienteFicha — Painel lateral com ficha completa do cliente.
  * Mostra dados cadastrais, estatísticas, serviço favorito e histórico completo.
+ * Clicar num agendamento navega para esse dia na Agenda.
+ * Status (Agendado/Concluído) é baseado na data, não no caixa.
  */
 import React, { useMemo } from "react";
-import { format, differenceInYears, formatDistanceToNow } from "date-fns";
+import { useLocation } from "wouter";
+import { format, differenceInYears, formatDistanceToNow, isBefore, startOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   X, Phone, Mail, MapPin, Calendar, Pencil, Clock,
-  Star, TrendingUp, Hash, CreditCard,
+  Star, TrendingUp, Hash, CreditCard, ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -20,9 +23,20 @@ interface Props {
   onEdit: () => void;
 }
 
+// Deriva o status de exibição a partir da data — ignora o campo `status` do caixa
+// para a classificação Agendado/Concluído.
+// Cancelado e Faltou continuam sendo respeitados.
+function deriveStatus(apptStatus: string, startTime: string) {
+  if (apptStatus === "cancelled") return "cancelled";
+  if (apptStatus === "no_show")   return "no_show";
+  if (apptStatus === "in_progress") return "in_progress";
+  const now = new Date();
+  const start = new Date(startTime);
+  return isBefore(start, now) ? "completed" : "scheduled";
+}
+
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
   scheduled:   { label: "Agendado",      bg: "bg-blue-500/15",   text: "text-blue-400"   },
-  confirmed:   { label: "Confirmado",    bg: "bg-blue-600/15",   text: "text-blue-500"   },
   in_progress: { label: "Em andamento",  bg: "bg-yellow-500/15", text: "text-yellow-400" },
   completed:   { label: "Concluído",     bg: "bg-green-500/15",  text: "text-green-400"  },
   cancelled:   { label: "Cancelado",     bg: "bg-red-500/15",    text: "text-red-400"    },
@@ -35,10 +49,10 @@ const DOT_COLOR: Record<string, string> = {
   no_show:     "bg-orange-400",
   in_progress: "bg-yellow-400",
   scheduled:   "bg-blue-400",
-  confirmed:   "bg-blue-500",
 };
 
 export default function ClienteFicha({ client, onClose, onEdit }: Props) {
+  const [, setLocation] = useLocation();
   const employees = useMemo(() => employeesStore.list(false), []);
 
   const appts = useMemo(() => {
@@ -51,22 +65,37 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
       .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
   }, [client]);
 
-  const completed = useMemo(() => appts.filter(a => a.status === "completed"), [appts]);
+  // "Concluído" = data passada + não cancelado/faltou — independente do caixa
+  const now = new Date();
+  const pastDone = useMemo(
+    () => appts.filter(a =>
+      isBefore(new Date(a.startTime), now) &&
+      a.status !== "cancelled" &&
+      a.status !== "no_show"
+    ),
+    [appts]
+  );
 
-  const totalSpent = completed.reduce((s, a) => s + (a.totalPrice ?? 0), 0);
-  const avgTicket  = completed.length > 0 ? totalSpent / completed.length : 0;
-  const lastVisit  = completed[0]?.startTime ?? null;
-  const nextVisit  = appts.find(a => a.status === "scheduled" || a.status === "confirmed");
+  const totalSpent = pastDone.reduce((s, a) => s + (a.totalPrice ?? 0), 0);
+  const avgTicket  = pastDone.length > 0 ? totalSpent / pastDone.length : 0;
+  const lastVisit  = pastDone[0]?.startTime ?? null;
+
+  // Próximo = data futura e não cancelado
+  const nextVisit = appts.find(a =>
+    !isBefore(new Date(a.startTime), startOfDay(now)) &&
+    a.status !== "cancelled" &&
+    a.status !== "no_show"
+  );
 
   const serviceCount = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const a of completed) {
+    for (const a of pastDone) {
       for (const s of a.services ?? []) {
         map[s.name] = (map[s.name] ?? 0) + 1;
       }
     }
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
-  }, [completed]);
+  }, [pastDone]);
 
   const favoriteService = serviceCount[0] ?? null;
 
@@ -81,6 +110,12 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
   const memberSince = client.createdAt
     ? format(new Date(client.createdAt), "MMM yyyy", { locale: ptBR })
     : null;
+
+  function goToAgenda(startTime: string) {
+    const date = format(new Date(startTime), "yyyy-MM-dd");
+    onClose();
+    setLocation(`/agenda?date=${date}`);
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
@@ -185,9 +220,12 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
 
           {/* ── Próximo agendamento ── */}
           {nextVisit && (
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
+            <button
+              onClick={() => goToAgenda(nextVisit.startTime)}
+              className="w-full flex items-center gap-3 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/20 transition-colors text-left group"
+            >
               <Calendar className="w-4 h-4 text-blue-400 shrink-0" />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-xs font-medium text-blue-400">Próximo agendamento</p>
                 <p className="text-sm font-semibold">
                   {format(new Date(nextVisit.startTime), "dd/MM/yyyy HH:mm", { locale: ptBR })}
@@ -198,7 +236,8 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
                   </p>
                 )}
               </div>
-            </div>
+              <ExternalLink className="w-3.5 h-3.5 text-blue-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
           )}
 
           {/* ── Serviço favorito ── */}
@@ -257,14 +296,19 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
             ) : (
               <div className="space-y-2">
                 {appts.map(appt => {
-                  const st = STATUS_CONFIG[appt.status] ?? { label: appt.status, bg: "bg-gray-500/15", text: "text-gray-400" };
-                  const dot = DOT_COLOR[appt.status] ?? "bg-gray-400";
+                  const derived = deriveStatus(appt.status, appt.startTime);
+                  const st = STATUS_CONFIG[derived] ?? { label: derived, bg: "bg-gray-500/15", text: "text-gray-400" };
+                  const dot = DOT_COLOR[derived] ?? "bg-gray-400";
                   const emp = employees.find(e => e.id === appt.employeeId);
                   const svcsStr = appt.services?.map(s => s.name).join(", ") || "—";
                   const hasPrice = appt.totalPrice != null && appt.totalPrice > 0;
 
                   return (
-                    <div key={appt.id} className="rounded-xl border border-border bg-card/30 p-3">
+                    <button
+                      key={appt.id}
+                      onClick={() => goToAgenda(appt.startTime)}
+                      className="w-full rounded-xl border border-border bg-card/30 p-3 hover:bg-card/60 hover:border-primary/30 transition-colors text-left group"
+                    >
                       <div className="flex items-start gap-3">
                         <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${dot}`} />
                         <div className="flex-1 min-w-0">
@@ -280,20 +324,21 @@ export default function ClienteFicha({ client, onClose, onEdit }: Props) {
                                 </p>
                               )}
                             </div>
-                            <div className="text-right shrink-0">
+                            <div className="text-right shrink-0 flex flex-col items-end gap-1">
                               {hasPrice && (
                                 <p className="text-sm font-bold text-primary">
                                   R$ {appt.totalPrice!.toFixed(2)}
                                 </p>
                               )}
-                              <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full mt-1 font-medium ${st.bg} ${st.text}`}>
+                              <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-medium ${st.bg} ${st.text}`}>
                                 {st.label}
                               </span>
+                              <ExternalLink className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
