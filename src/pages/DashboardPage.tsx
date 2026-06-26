@@ -6,6 +6,7 @@
  * Isso evita baixar milhares de clientes só para mostrar o contador.
  */
 import { useState, useEffect, useMemo } from "react";
+import { safeFmt } from "@/lib/utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useLocation } from "wouter";
@@ -275,7 +276,7 @@ export default function DashboardPage() {
                 </p>
                 <p className="text-[10px] text-center"
                   style={{ color: empNow ? "#f59e0b" : "rgba(255,255,255,0.35)" }}>
-                  {empNow ? "Ocupado" : next ? format(new Date(next.startTime), "HH:mm") : "Livre"}
+                  {empNow ? "Ocupado" : next ? safeFmt(next.startTime, "HH:mm") : "Livre"}
                 </p>
                 <div className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
                   style={{ background: `${emp.color}20`, color: emp.color }}>
