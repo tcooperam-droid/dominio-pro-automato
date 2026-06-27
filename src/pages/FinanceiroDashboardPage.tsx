@@ -205,7 +205,7 @@ export default function FinanceiroDashboardPage() {
 
   // ── Alertas ──────────────────────────────────────────────
   const convRate       = useMemo(() => calcConversionRate(pastAppts), [pastAppts]);
-  const inactiveClients= useMemo(() => calcInactiveClients(pastAppts, 70), [pastAppts]);
+  const inactiveClients= useMemo(() => calcInactiveClients(pastAppts, 90), [pastAppts]);
   const overdueExpenses= useMemo(() => allExpenses.filter(e => e.status === "pendente" && e.date < todayStr), [allExpenses]);
   const weeklyData     = useMemo(() => calcWeeklyRevenue(allAppts, 5), [allAppts]);
   const thisWeekRev    = weeklyData[weeklyData.length - 1]?.revenue ?? 0;
@@ -255,19 +255,25 @@ export default function FinanceiroDashboardPage() {
             onClick={() => setShowInactive(v => !v)}>
             <div className="flex items-center gap-3">
               <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-              <p className="text-sm text-red-400">{inactiveClients.length} cliente(s) sem visita há mais de 70 dias</p>
+              <p className="text-sm text-red-400">{inactiveClients.length} cliente(s) sem visita há mais de 90 dias</p>
             </div>
             <ChevronRight className={`w-4 h-4 text-red-400 transition-transform ${showInactive ? "rotate-90" : ""}`} />
           </div>
         )}
         {showInactive && inactiveClients.length > 0 && (
-          <div style={{ ...cardStyle, borderColor: "rgba(239,68,68,0.15)" }} className="space-y-1.5">
-            {inactiveClients.slice(0, 10).map((c, i) => (
-              <div key={i} className="flex items-center justify-between text-sm">
-                <span>{c.clientName}</span>
-                <span className="text-red-400 text-xs">{c.daysSince} dias sem visita</span>
-              </div>
-            ))}
+          <div style={{ ...cardStyle, borderColor: "rgba(239,68,68,0.15)" }} className="space-y-1">
+            <div className="overflow-y-auto" style={{ maxHeight: 320 }}>
+              {inactiveClients.map((c, i) => (
+                <div key={i}
+                  className="flex items-center justify-between text-sm py-2 px-1 rounded-lg cursor-pointer hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
+                  onClick={() => setLocation(`/clientes?search=${encodeURIComponent(c.clientName)}`)}
+                >
+                  <span className="font-medium">{c.clientName}</span>
+                  <span className="text-red-400 text-xs shrink-0 ml-2">{c.daysSince} dias sem visita</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground text-right pt-1">{inactiveClients.length} clientes no total</p>
           </div>
         )}
         {overdueExpenses.length > 0 && (
