@@ -1,7 +1,7 @@
 // sw.js — Service Worker para Domínio Pro PWA
 // Garante que todas as rotas SPA funcionem offline e após background
 
-const CACHE_NAME = "dominio-pro-v1";
+const CACHE_NAME = "dominio-pro-v2";
 
 // Arquivos essenciais para o shell do app funcionar offline
 const SHELL_ASSETS = [
@@ -40,7 +40,7 @@ self.addEventListener("fetch", (event) => {
 
   // Ignora requisições de assets com extensão (js, css, png, etc.)
   // Essas são servidas normalmente da rede com cache
-  const hasExtension = /\.[a-zA-Z0-9]+$/.test(url.pathname);
+  const hasExtension = /.[a-zA-Z0-9]+$/.test(url.pathname);
 
   if (hasExtension) {
     // Assets: network first, fallback cache
@@ -57,22 +57,17 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Rotas de navegação SPA (/agenda, /financeiro, /clientes, etc.)
-  // Sempre serve o index.html — o router do React resolve a rota
+  // Network first — garante sempre o index.html mais recente
   event.respondWith(
-    caches.open(CACHE_NAME).then((cache) =>
-      cache.match("/index.html").then((cached) => {
-        // Tenta buscar versão atualizada em paralelo
-        const networkFetch = fetch("/index.html")
-          .then((response) => {
-            cache.put("/index.html", response.clone());
-            return response;
-          })
-          .catch(() => null);
-
-        // Serve o cache imediatamente se disponível (evita 404 no background)
-        return cached || networkFetch;
+    fetch("/index.html")
+      .then((response) => {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put("/index.html", clone));
+        return response;
       })
-    )
+      .catch(() =>
+        caches.match("/index.html")
+      )
   );
 });
 
