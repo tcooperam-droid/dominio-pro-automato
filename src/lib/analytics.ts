@@ -368,8 +368,9 @@ export function calcInactiveClients(
 
   const lastVisitMap = new Map<string, { clientId: number | null; clientName: string; lastVisit: string }>();
 
+  const now_ = new Date();
   appts
-    .filter(isFinancialAppointment)
+    .filter(a => !EXCLUDED.includes(a.status as typeof EXCLUDED[number]) && parseISO(a.startTime) <= now_)
     .forEach(a => {
       const key   = a.clientId ? `id:${a.clientId}` : `name:${(a.clientName ?? "").toLowerCase()}`;
       const date  = a.startTime.slice(0, 10);
