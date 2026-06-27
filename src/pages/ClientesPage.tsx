@@ -21,7 +21,12 @@ import { Smartphone } from "lucide-react";
 import ClienteFicha from "@/components/ClienteFicha";
 
 export default function ClientesPage() {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).get("search");
+      return q ? decodeURIComponent(q) : "";
+    } catch { return ""; }
+  });
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedClient, setSelectedClient] = useState<number | null>(null);
