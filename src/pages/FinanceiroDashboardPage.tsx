@@ -205,7 +205,7 @@ export default function FinanceiroDashboardPage() {
 
   // ── Alertas ──────────────────────────────────────────────
   const convRate       = useMemo(() => calcConversionRate(pastAppts), [pastAppts]);
-  const inactiveClients= useMemo(() => calcInactiveClients(pastAppts, 90), [pastAppts]);
+  const inactiveClients= useMemo(() => calcInactiveClients(allAppts, 90), [allAppts]);
   const overdueExpenses= useMemo(() => allExpenses.filter(e => e.status === "pendente" && e.date < todayStr), [allExpenses]);
   const weeklyData     = useMemo(() => calcWeeklyRevenue(allAppts, 5), [allAppts]);
   const thisWeekRev    = weeklyData[weeklyData.length - 1]?.revenue ?? 0;
