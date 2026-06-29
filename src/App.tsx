@@ -102,7 +102,7 @@ function AppContent() {
               <Route path="/clientes" component={ClientesPage} />
               <Route path="/funcionarios" component={FuncionariosPage} />
               <Route path="/servicos" component={ServicosPage} />
-              <Route path="/caixa" component={CaixaPage} />
+              <Route path="/caixa"><Redirect to="/financeiro" /></Route>
               <Route path="/financeiro" component={FinanceiroDashboardPage} />
               <Route path="/despesas" component={DespesasPage} />
               <Route path="/comissoes" component={ComissoesPage} />
