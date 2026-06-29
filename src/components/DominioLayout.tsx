@@ -21,11 +21,10 @@ const PRIMARY_NAV = [
   { path: "/dashboard", label: "Início",      icon: BarChart2  },
   { path: "/agenda",    label: "Agenda",      icon: Calendar   },
   { path: "/clientes",  label: "Clientes",    icon: Users      },
-  { path: "/caixa",     label: "Caixa",       icon: DollarSign },
+  { path: "/financeiro", label: "Financeiro", icon: TrendingUp },
 ];
 
 const SECONDARY_NAV = [
-  { path: "/financeiro",            label: "Financeiro",    icon: TrendingUp  },
   { path: "/despesas",              label: "Despesas",      icon: Receipt     },
   { path: "/comissoes",             label: "Comissões",     icon: Percent     },
   { path: "/funcionarios",          label: "Funcionários",  icon: UserCheck   },
