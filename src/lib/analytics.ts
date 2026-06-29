@@ -360,23 +360,37 @@ export function calcInactiveClients(
   const now = new Date();
   const threshold = subDays(now, inactiveDays);
 
+  // Some appointments are linked by clientId, others only by clientName (e.g. walk-ins).
+  // Build a name→clientId map so both kinds are unified under the same key.
+  const nameToClientId = new Map<string, number>();
+  appts.forEach(a => {
+    if (a.clientId && a.clientName) {
+      nameToClientId.set((a.clientName).toLowerCase(), a.clientId);
+    }
+  });
+
+  const getKey = (a: Appointment): string => {
+    const id = a.clientId ?? nameToClientId.get((a.clientName ?? "").toLowerCase());
+    return id ? `id:${id}` : `name:${(a.clientName ?? "").toLowerCase()}`;
+  };
+
   const futureClientsSet = new Set(
     appts
       .filter(a => ["scheduled", "confirmed"].includes(a.status) && parseISO(a.startTime) > now)
-      .map(a => a.clientId ? `id:${a.clientId}` : `name:${(a.clientName ?? "").toLowerCase()}`)
+      .map(getKey)
   );
 
   const lastVisitMap = new Map<string, { clientId: number | null; clientName: string; lastVisit: string }>();
 
-  const now_ = new Date();
   appts
-    .filter(a => !EXCLUDED.includes(a.status as typeof EXCLUDED[number]) && parseISO(a.startTime) <= now_)
+    .filter(a => !EXCLUDED.includes(a.status as typeof EXCLUDED[number]) && parseISO(a.startTime) <= now)
     .forEach(a => {
-      const key   = a.clientId ? `id:${a.clientId}` : `name:${(a.clientName ?? "").toLowerCase()}`;
-      const date  = a.startTime.slice(0, 10);
-      const cur   = lastVisitMap.get(key);
+      const key      = getKey(a);
+      const date     = a.startTime.slice(0, 10);
+      const resolvedId = a.clientId ?? nameToClientId.get((a.clientName ?? "").toLowerCase()) ?? null;
+      const cur      = lastVisitMap.get(key);
       if (!cur || date > cur.lastVisit) {
-        lastVisitMap.set(key, { clientId: a.clientId, clientName: a.clientName ?? "Sem nome", lastVisit: date });
+        lastVisitMap.set(key, { clientId: resolvedId, clientName: a.clientName ?? "Sem nome", lastVisit: date });
       }
     });
 
