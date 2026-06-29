@@ -216,7 +216,7 @@ export default function DashboardPage() {
           color="#22c55e" />
         <MetricCard icon={DollarSign} label="Faturamento hoje" value={`R$ ${faturamentoHoje.toFixed(0)}`}
           sub="serviços concluídos" color="#f59e0b"
-          onClick={() => setLocation("/caixa")} />
+          onClick={() => setLocation("/financeiro")} />
         <MetricCard icon={Users} label="Clientes" value={clientCount}
           sub="cadastrados" color="#3b82f6"
           onClick={() => setLocation("/clientes")} />
