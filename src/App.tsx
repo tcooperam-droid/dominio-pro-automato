@@ -13,8 +13,6 @@ import ServicosPage from "./pages/ServicosPage";
 import CaixaPage from "./pages/CaixaPage";
 import DashboardCaixaPage from "./pages/DashboardCaixaPage";
 import RelatoriosPage from "./pages/RelatoriosPage";
-import HistoricoPage from "./pages/HistoricoPage";
-import HistoricoAgendamentosPage from "./pages/HistoricoAgendamentosPage";
 import BackupPage from "./pages/BackupPage";
 import ConfiguracoesPage from "./pages/ConfiguracoesPage";
 import FerramentasClientesPage from "./pages/FerramentasClientesPage";
@@ -108,8 +106,6 @@ function AppContent() {
               <Route path="/comissoes" component={ComissoesPage} />
               <Route path="/dashboard-caixa" component={DashboardCaixaPage} />
               <Route path="/relatorios" component={RelatoriosPage} />
-              <Route path="/historico" component={HistoricoPage} />
-              <Route path="/historico-agendamentos" component={HistoricoAgendamentosPage} />
               <Route path="/backup" component={BackupPage} />
               <Route path="/configuracoes" component={ConfiguracoesPage} />
               <Route path="/ferramentas-clientes" component={FerramentasClientesPage} />
