@@ -1,92 +1,81 @@
 import { useEffect, useRef } from "react";
 
 /**
- * Hook que detecta quando a aplicação volta do background/segundo plano
+ * Hook que detecta quando a aplicação volta do background/segundo plano.
  * Suporta:
  * - Navegadores (mudança de aba, foco de janela)
+ * - Back-forward cache (bfcache) — causa mais comum de tela branca em PWAs
  * - iOS/Android (via Capacitor)
- * - PWA
  *
  * @param callback Função a executar quando o app volta para o foreground
- * @example
- * useAppForeground(async () => {
- *   await fetchAllData();
- * });
  */
 export function useAppForeground(callback: () => Promise<void> | void) {
+  // Guarda o callback num ref para não recriar os listeners a cada render
+  const callbackRef = useRef(callback);
+  useEffect(() => { callbackRef.current = callback; }, [callback]);
+
   const isExecuting = useRef(false);
   const lastExecutionTime = useRef(0);
 
   useEffect(() => {
-    // Debounce: evita múltiplas execuções em menos de 1 segundo
+    // Debounce de 5 s — evita múltiplas execuções em transições rápidas
     const executeCallback = async () => {
       const now = Date.now();
-      const timeSinceLastExecution = now - lastExecutionTime.current;
-
-      // Se executou há menos de 1 segundo, pula
-      if (isExecuting.current || timeSinceLastExecution < 1000) {
-        return;
-      }
+      if (isExecuting.current || now - lastExecutionTime.current < 5000) return;
 
       isExecuting.current = true;
       lastExecutionTime.current = now;
 
       try {
-        console.log("[useAppForeground] Executando callback do foreground...");
-        await callback();
-        console.log("[useAppForeground] Callback executado com sucesso!");
+        await callbackRef.current();
       } catch (error) {
-        console.error("[useAppForeground] Erro ao executar callback:", error);
+        console.error("[useAppForeground] Erro:", error);
       } finally {
         isExecuting.current = false;
       }
     };
 
-    // 1. Detectar mudança de visibilidade (aba minimizada/visível)
+    // 1. Visibilidade (aba minimizada → visível)
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        console.log("[useAppForeground] App voltou para primeiro plano (visibilitychange)");
-        executeCallback();
+      if (document.visibilityState === "visible") executeCallback();
+    };
+
+    // 2. Foco da janela
+    const handleWindowFocus = () => executeCallback();
+
+    // 3. Back-forward cache (bfcache) — principal causa de tela branca em PWAs
+    //    Quando o browser restaura a página do bfcache, o evento pageshow
+    //    chega com event.persisted = true. Recarregamos a página para garantir
+    //    que o React está num estado limpo.
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        // Página restaurada do bfcache — força reload para evitar tela branca
+        window.location.reload();
       }
     };
 
-    // 2. Detectar foco da janela
-    const handleWindowFocus = () => {
-      console.log("[useAppForeground] App voltou para primeiro plano (focus)");
-      executeCallback();
-    };
-
-    // 3. Detectar resume do Capacitor (iOS/Android)
-    const handleCapacitorResume = () => {
-      console.log("[useAppForeground] App voltou para primeiro plano (Capacitor resume)");
-      executeCallback();
-    };
-
-    // Event Listeners
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", handleWindowFocus);
+    window.addEventListener("pageshow", handlePageShow);
 
-    // Capacitor (se disponível)
+    // 4. Capacitor (iOS/Android nativo)
     const setupCapacitor = async () => {
       try {
         const { App } = await import("@capacitor/app");
         App.addListener("appStateChange", ({ isActive }) => {
-          if (isActive) {
-            console.log("[useAppForeground] App voltou para primeiro plano (Capacitor state)");
-            executeCallback();
-          }
+          if (isActive) executeCallback();
         });
-      } catch (error) {
-        // Capacitor não disponível (rodando no navegador)
+      } catch {
+        // Capacitor não disponível no browser
       }
     };
-
     setupCapacitor();
 
-    // Cleanup
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleWindowFocus);
+      window.removeEventListener("pageshow", handlePageShow);
     };
-  }, [callback]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // roda apenas uma vez — callback é lido via ref
 }
