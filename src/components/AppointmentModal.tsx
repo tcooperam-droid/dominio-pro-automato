@@ -95,12 +95,18 @@ export default function AppointmentModal({
   const employees = useMemo(() => employeesStore.list(true), [open]);
   const servicesData = useMemo(() => servicesStore.list(true), [open]);
   const [clientsKey, setClientsKey] = useState(0);
+  const [appointmentsKey, setAppointmentsKey] = useState(0);
   const allClients = useMemo(() => clientsStore.list(), [open, clientsKey]);
 
   useEffect(() => {
-    const onUpdate = () => setClientsKey(k => k + 1);
-    window.addEventListener("clients_updated", onUpdate);
-    return () => window.removeEventListener("clients_updated", onUpdate);
+    const onClientsUpdate = () => setClientsKey(k => k + 1);
+    const onApptsUpdate   = () => setAppointmentsKey(k => k + 1);
+    window.addEventListener("clients_updated", onClientsUpdate);
+    window.addEventListener("appointments_updated", onApptsUpdate);
+    return () => {
+      window.removeEventListener("clients_updated", onClientsUpdate);
+      window.removeEventListener("appointments_updated", onApptsUpdate);
+    };
   }, []);
 
   // Filtrar clientes por busca
