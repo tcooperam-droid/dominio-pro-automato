@@ -11,9 +11,9 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { trackAction } from "@/lib/agentTracker";
 import {
   Calendar, Users, UserCheck, Scissors, DollarSign,
-  BarChart2, Settings, History, Database, Menu, X,
+  BarChart2, Settings, Database, Menu, X,
   Sun, Moon, Plus, Wrench,
-  CalendarCheck, LogOut, Receipt, Percent, TrendingUp
+  LogOut, Receipt, Percent, TrendingUp
 } from "lucide-react";
 
 // ─── Navegação ────────────────────────────────────────────
@@ -31,8 +31,6 @@ const SECONDARY_NAV = [
   { path: "/servicos",              label: "Serviços",      icon: Scissors    },
   { path: "/ferramentas-clientes",  label: "Ferramentas",   icon: Wrench      },
   { path: "/relatorios",            label: "Relatórios",    icon: BarChart2   },
-  { path: "/historico",             label: "Histórico",     icon: History     },
-  { path: "/historico-agendamentos",label: "Agendamentos",  icon: CalendarCheck },
   { path: "/backup",                label: "Backup",        icon: Database    },
   { path: "/configuracoes",         label: "Configurações", icon: Settings    },
 ];
@@ -290,7 +288,6 @@ export default function DominioLayout({ children, onNewAppt }: {
       "servicos": "servicos",
       "ferramentas-clientes": "ferramentas",
       "relatorios": "relatorios",
-      "historico": "historico",
       "backup": "backup",
       "configuracoes": "configuracoes",
     };
