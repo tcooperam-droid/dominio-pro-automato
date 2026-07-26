@@ -356,14 +356,22 @@ export function calcWeeklyRevenue(
 export function calcInactiveClients(
   appts: Appointment[],
   inactiveDays = 70,
+  activeClientIds?: Set<number>,
 ): { clientId: number | null; clientName: string; lastVisit: string; daysSince: number }[] {
   const now = new Date();
   const threshold = subDays(now, inactiveDays);
 
+  // Filtrar agendamentos de clientes excluídos do cadastro:
+  // Se activeClientIds é fornecido e o agendamento tem clientId, o cliente
+  // deve ainda existir no cadastro (não foi deletado).
+  const validAppts = activeClientIds
+    ? appts.filter(a => !a.clientId || activeClientIds.has(a.clientId))
+    : appts;
+
   // Some appointments are linked by clientId, others only by clientName (e.g. walk-ins).
   // Build a name→clientId map so both kinds are unified under the same key.
   const nameToClientId = new Map<string, number>();
-  appts.forEach(a => {
+  validAppts.forEach(a => {
     if (a.clientId && a.clientName) {
       nameToClientId.set((a.clientName).toLowerCase(), a.clientId);
     }
@@ -375,14 +383,14 @@ export function calcInactiveClients(
   };
 
   const futureClientsSet = new Set(
-    appts
+    validAppts
       .filter(a => ["scheduled", "confirmed"].includes(a.status) && parseISO(a.startTime) > now)
       .map(getKey)
   );
 
   const lastVisitMap = new Map<string, { clientId: number | null; clientName: string; lastVisit: string }>();
 
-  appts
+  validAppts
     .filter(a => !EXCLUDED.includes(a.status as typeof EXCLUDED[number]) && parseISO(a.startTime) <= now)
     .forEach(a => {
       const key      = getKey(a);
