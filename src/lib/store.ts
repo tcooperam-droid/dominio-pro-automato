@@ -927,6 +927,8 @@ export const appointmentsStore = {
 
     logDb("appointments.create:success", appt);
 
+    window.dispatchEvent(new Event("appointments_updated"));
+
     await addAuditLog("appointment", appt.id, "create", `Agendamento para "${appt.clientName}" criado`);
 
     return appt;
@@ -968,6 +970,8 @@ export const appointmentsStore = {
 
     logDb("appointments.update:success", appt);
 
+    window.dispatchEvent(new Event("appointments_updated"));
+
     if (data.status === "completed" && appt.paymentStatus !== "paid") {
       await autoLaunchCashEntry(appt);
     }
@@ -981,6 +985,8 @@ export const appointmentsStore = {
     await supabase.from("appointments").delete().eq("id", id);
 
     cache.appointments = cache.appointments.filter(a => a.id !== id);
+
+    window.dispatchEvent(new Event("appointments_updated"));
 
     await addAuditLog("appointment", id, "delete", `Agendamento #${id} removido`);
   },
@@ -1492,6 +1498,9 @@ export async function fetchAllData(): Promise<void> {
     commissionClosingsStore.fetchAll(),
     // auditStore.fetchAll() removido do boot — carregado sob demanda
   ]);
+  // Notifica todos os componentes que os dados foram atualizados
+  window.dispatchEvent(new Event("appointments_updated"));
+  window.dispatchEvent(new Event("store_updated"));
 }
 
 export async function fetchDashboardData(): Promise<{ clientCount: number }> {
