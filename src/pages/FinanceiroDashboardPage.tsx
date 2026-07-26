@@ -19,7 +19,7 @@ import {
   AlertCircle, AlertTriangle, CheckCircle, Info, ChevronRight,
   Calendar, Clock, Award,
 } from "lucide-react";
-import { appointmentsStore, employeesStore, expensesStore } from "@/lib/store";
+import { appointmentsStore, employeesStore, expensesStore, clientsStore } from "@/lib/store";
 import {
   calcPeriodStats, calcRevenueByDay, calcRevenueByEmployee,
   calcTopClients, calcConversionRate, calcMostProfitableServices,
@@ -205,7 +205,10 @@ export default function FinanceiroDashboardPage() {
 
   // ── Alertas ──────────────────────────────────────────────
   const convRate       = useMemo(() => calcConversionRate(pastAppts), [pastAppts]);
-  const inactiveClients= useMemo(() => calcInactiveClients(allAppts, 90), [allAppts]);
+  const inactiveClients= useMemo(() => {
+    const activeIds = new Set(clientsStore.list().map(c => c.id));
+    return calcInactiveClients(allAppts, 90, activeIds);
+  }, [allAppts]);
   const overdueExpenses= useMemo(() => allExpenses.filter(e => e.status === "pendente" && e.date < todayStr), [allExpenses]);
   const weeklyData     = useMemo(() => calcWeeklyRevenue(allAppts, 5), [allAppts]);
   const thisWeekRev    = weeklyData[weeklyData.length - 1]?.revenue ?? 0;
