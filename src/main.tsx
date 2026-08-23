@@ -3,20 +3,19 @@ import App from "./App";
 import "./index.css";
 import { supabase } from "./lib/supabase";
 
-async function bootstrap() {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      const { error } = await supabase.auth.signInAnonymously();
-      if (error) console.warn("Supabase anonymous sign-in failed:", error.message);
-    }
-  } catch (err) {
-    console.warn("Supabase bootstrap error:", err);
-  }
-  createRoot(document.getElementById("root")!).render(<App />);
-}
+// Monta a interface imediatamente. A autenticação não pode bloquear o primeiro
+// render — no Android isso deixava o ecrã branco quando a rede demorava.
+createRoot(document.getElementById("root")!).render(<App />);
 
-bootstrap();
+// Inicializa a sessão em segundo plano para as operações do Supabase.
+supabase.auth.getSession().then(async ({ data: { session } }) => {
+  if (!session) {
+    const { error } = await supabase.auth.signInAnonymously();
+    if (error) console.warn("Supabase anonymous sign-in failed:", error.message);
+  }
+}).catch((err) => {
+  console.warn("Supabase bootstrap error:", err);
+});
 
 // ── Service Worker — detecta nova versão e recarrega automaticamente ──
 // Desabilitado em desenvolvimento para evitar cache de versões quebradas.

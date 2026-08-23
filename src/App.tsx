@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch, Redirect, useLocation } from "wouter";
+import { Route, Switch, Redirect } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import DominioLayout from "./components/DominioLayout";
@@ -19,9 +19,7 @@ import FerramentasClientesPage from "./pages/FerramentasClientesPage";
 import DespesasPage from "./pages/DespesasPage";
 import ComissoesPage from "./pages/ComissoesPage";
 import FinanceiroDashboardPage from "./pages/FinanceiroDashboardPage";
-import { useState, useEffect } from "react";
-import { getSession, getDefaultRoute } from "./lib/access";
-import ProfileSelector from "./components/ProfileSelector";
+import { useEffect } from "react";
 import AgentChat from "./components/AgentChat";
 
 import { fetchAllData } from "./lib/store";
@@ -30,9 +28,6 @@ import { fetchAllData } from "./lib/store";
 import { initAgentV2 } from "./lib/agentV2";
 
 function AppContent() {
-  const [, setLocation] = useLocation();
-  const [session, setSession] = useState(getSession);
-
   // ── CARREGAR DADOS DO SISTEMA AO INICIAR ──
   useEffect(() => {
     // Tenta carregar todos os dados. Se falhar (ex: rede instável), o agente
@@ -82,15 +77,13 @@ function AppContent() {
       <TooltipProvider>
         <Toaster position="top-center" richColors closeButton />
         <Switch>
+          {/* O acesso é directo; a rota antiga de login permanece compatível. */}
           <Route path="/login">
-            <ProfileSelector onSelect={(p) => {
-              setSession(p);
-              setLocation(getDefaultRoute(p.role));
-            }} />
+            <Redirect to="/dashboard" />
           </Route>
           
           <Route path="/">
-            {!session ? <Redirect to="/login" /> : <Redirect to={getDefaultRoute(session.role)} />}
+            <Redirect to="/dashboard" />
           </Route>
 
           <DominioLayout>
