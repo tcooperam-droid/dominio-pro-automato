@@ -97,7 +97,16 @@ function TimeBlockModal({
     setStart(block ? format(new Date(block.startTime), "HH:mm") : "12:00");
     setEnd(block ? format(new Date(block.endTime), "HH:mm") : "13:00");
     setReason(block ? blockReason(block) : "Almoço");
-  }, [open, block, selectedDate, employees]);
+  }, [
+    open,
+    block?.id,
+    block?.employeeId,
+    block?.startTime,
+    block?.endTime,
+    block?.notes,
+    selectedDate,
+    employees[0]?.id,
+  ]);
 
   const save = async () => {
     if (!employeeId || !date || !start || !end || !reason.trim()) {
@@ -839,6 +848,7 @@ export default function AgendaPage() {
 
   // ── Modal helpers ─────────────────────────────────────────────────────────
   const openNew = useCallback((empId: number, hour: number, minute = 0) => {
+    capturePending();
     setEditingAppt(null);
     setDefaultEmpId(empId);
     setDefaultHour(hour);
@@ -846,10 +856,11 @@ export default function AgendaPage() {
     setGroupClientName(undefined);
     setGroupId(undefined);
     setModalOpen(true);
-  }, []);
+  }, [capturePending]);
 
   const openEdit = useCallback((appt: Appointment) => {
     if (isTimeBlock(appt)) {
+      capturePending();
       setEditingBlock(appt);
       setBlockModalOpen(true);
       return;
