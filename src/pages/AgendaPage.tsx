@@ -10,7 +10,7 @@ import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Plus, Calendar, CalendarDays, RefreshCw, Clock, Link2, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Calendar, CalendarDays, RefreshCw, Clock, Link2, Search, Undo2, Redo2 } from "lucide-react";
 import { Calendar as CalendarUI } from "@/components/ui/calendar";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import AppointmentModal from "@/components/AppointmentModal";
@@ -400,6 +400,85 @@ export default function AgendaPage() {
   const [refreshKey, setRefreshKey]       = useState(0);
   const [refreshing, setRefreshing]       = useState(false);
 
+  // ── Undo / Redo ──────────────────────────────────────────────────────────
+  const undoStack     = useRef<Appointment[][]>([]);
+  const redoStack     = useRef<Appointment[][]>([]);
+  const pendingSnap   = useRef<Appointment[] | null>(null);
+  const [historyVer, setHistoryVer] = useState(0); // força re-render dos botões
+
+  // Captura snapshot antes de uma acção (drag ou modal)
+  const capturePending = useCallback(() => {
+    pendingSnap.current = appointmentsStore.list({ date: selectedDate });
+    redoStack.current = [];
+    setHistoryVer(v => v + 1);
+  }, [selectedDate]);
+
+  // Confirma snapshot após acção bem-sucedida
+  const commitSnapshot = useCallback(() => {
+    if (!pendingSnap.current) return;
+    undoStack.current.push(pendingSnap.current);
+    if (undoStack.current.length > 30) undoStack.current.shift();
+    pendingSnap.current = null;
+    setHistoryVer(v => v + 1);
+  }, []);
+
+  // Descarta snapshot pendente (acção cancelada / falhou)
+  const discardPending = useCallback(() => {
+    pendingSnap.current = null;
+  }, []);
+
+  const [undoLoading, setUndoLoading] = useState(false);
+
+  const handleUndo = useCallback(async () => {
+    const snapshot = undoStack.current.pop();
+    if (!snapshot) return;
+    const current = appointmentsStore.list({ date: selectedDate });
+    redoStack.current.push(current);
+    setUndoLoading(true);
+    try {
+      await appointmentsStore.restoreForDate(selectedDate, snapshot);
+      setRefreshKey(k => k + 1);
+    } catch { toast.error("Erro ao desfazer"); }
+    finally { setUndoLoading(false); setHistoryVer(v => v + 1); }
+  }, [selectedDate]);
+
+  const handleRedo = useCallback(async () => {
+    const snapshot = redoStack.current.pop();
+    if (!snapshot) return;
+    const current = appointmentsStore.list({ date: selectedDate });
+    undoStack.current.push(current);
+    setUndoLoading(true);
+    try {
+      await appointmentsStore.restoreForDate(selectedDate, snapshot);
+      setRefreshKey(k => k + 1);
+    } catch { toast.error("Erro ao refazer"); }
+    finally { setUndoLoading(false); setHistoryVer(v => v + 1); }
+  }, [selectedDate]);
+
+  // Limpa histórico ao mudar de dia
+  useEffect(() => {
+    undoStack.current = [];
+    redoStack.current = [];
+    pendingSnap.current = null;
+    setHistoryVer(v => v + 1);
+  }, [selectedDate]);
+
+  // Atalhos de teclado Ctrl+Z / Ctrl+Y
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        if (undoStack.current.length > 0) handleUndo();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        if (redoStack.current.length > 0) handleRedo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleUndo, handleRedo]);
+
   // Escutar evento do agente IA e outras atualizações do store
   useEffect(() => {
     const onStoreUpdate = async () => {
@@ -534,6 +613,9 @@ export default function AgendaPage() {
         const duration = (new Date(dragging.endTime).getTime() - new Date(dragging.startTime).getTime()) / 1000 / 60;
         const newEnd = new Date(newStart.getTime() + duration * 60_000);
 
+        // Captura snapshot ANTES de mover (para undo)
+        capturePending();
+
         // Atualiza cache local imediatamente
         appointmentsStore.updateLocal(dragging.id, {
           employeeId: targetEmpId,
@@ -545,8 +627,10 @@ export default function AgendaPage() {
         // Persiste no Supabase em background
         try {
           await appointmentsStore.move(dragging.id, targetEmpId, newStart.toISOString(), newEnd.toISOString());
+          commitSnapshot();
           toast.success("Agendamento reagendado!");
         } catch {
+          discardPending();
           toast.error("Erro ao mover — revertendo");
           // Reverte: restaura posição original no cache
           appointmentsStore.updateLocal(dragging.id, {
@@ -611,11 +695,12 @@ export default function AgendaPage() {
   }, []);
 
   const openEdit = useCallback((appt: Appointment) => {
+    capturePending();
     setEditingAppt(appt);
     setGroupClientName(undefined);
     setGroupId(undefined);
     setModalOpen(true);
-  }, []);
+  }, [capturePending]);
 
   // Called from AppointmentModal when user clicks "Adicionar outro serviço"
   const openGroupAdd = useCallback((clientName: string, existingGroupId: string) => {
@@ -708,6 +793,25 @@ export default function AgendaPage() {
         </div>
 
         <div className="flex items-center gap-1.5 ml-auto">
+          {/* Undo / Redo */}
+          <Button
+            variant="ghost" size="icon"
+            onClick={handleUndo}
+            disabled={undoLoading || undoStack.current.length === 0}
+            className="h-8 w-8"
+            title="Desfazer (Ctrl+Z)"
+          >
+            <Undo2 className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="ghost" size="icon"
+            onClick={handleRedo}
+            disabled={undoLoading || redoStack.current.length === 0}
+            className="h-8 w-8"
+            title="Refazer (Ctrl+Y)"
+          >
+            <Redo2 className="w-3.5 h-3.5" />
+          </Button>
           <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={refreshing} className="h-8 w-8" title="Atualizar">
             <RefreshCw className={cn("w-3 h-3", refreshing && "animate-spin")} />
           </Button>
@@ -716,7 +820,7 @@ export default function AgendaPage() {
           </Badge>
           <Button
             size="sm"
-            onClick={() => { setEditingAppt(null); setDefaultEmpId(undefined); setGroupClientName(undefined); setGroupId(undefined); setModalOpen(true); }}
+            onClick={() => { capturePending(); setEditingAppt(null); setDefaultEmpId(undefined); setGroupClientName(undefined); setGroupId(undefined); setModalOpen(true); }}
             className="gap-1 h-8 text-xs md:text-sm"
           >
             <Plus className="w-3 h-3" />
@@ -811,7 +915,7 @@ export default function AgendaPage() {
       {/* ── Modal ── */}
       <AppointmentModal
         open={modalOpen}
-        onClose={() => { setModalOpen(false); setEditingAppt(null); }}
+        onClose={() => { discardPending(); setModalOpen(false); setEditingAppt(null); }}
         appointment={editingAppt}
         defaultEmployeeId={defaultEmpId}
         defaultHour={defaultHour}
@@ -820,6 +924,7 @@ export default function AgendaPage() {
         groupClientName={groupClientName}
         groupId={groupId}
         onSuccess={() => {
+          commitSnapshot();
           setRefreshKey(k => k + 1);
           setModalOpen(false);
           setEditingAppt(null);

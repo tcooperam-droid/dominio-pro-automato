@@ -1050,6 +1050,67 @@ export const appointmentsStore = {
 
     await addAuditLog("appointment", id, "update", `Agendamento #${id} reagendado via drag-and-drop`);
   },
+
+  // Restaura a agenda de um dia a partir de um snapshot (para undo/redo)
+  async restoreForDate(date: string, snapshot: Appointment[]): Promise<void> {
+    const current = cache.appointments.filter(a => a.startTime.startsWith(date));
+    const snapMap = new Map(snapshot.map(a => [a.id, a]));
+    const currMap = new Map(current.map(a => [a.id, a]));
+
+    // Apagar agendamentos que não existiam no snapshot
+    for (const [id] of currMap) {
+      if (!snapMap.has(id)) {
+        await supabase.from("appointments").delete().eq("id", id);
+        cache.appointments = cache.appointments.filter(a => a.id !== id);
+      }
+    }
+
+    // Recriar ou actualizar agendamentos do snapshot
+    for (const [id, appt] of snapMap) {
+      const curr = currMap.get(id);
+      if (!curr) {
+        // Recriar com o ID original via upsert
+        const { data: row, error } = await supabase
+          .from("appointments")
+          .upsert({
+            id,
+            client_name: appt.clientName,
+            client_id: appt.clientId,
+            employee_id: appt.employeeId,
+            start_time: appt.startTime,
+            end_time: appt.endTime,
+            status: appt.status,
+            total_price: appt.totalPrice,
+            notes: appt.notes,
+            payment_status: appt.paymentStatus,
+            group_id: appt.groupId,
+            services: appt.services,
+          })
+          .select()
+          .single();
+        if (!error && row) cache.appointments.push(toAppointment(row));
+      } else if (JSON.stringify(curr) !== JSON.stringify(appt)) {
+        // Actualizar campos que mudaram
+        await supabase.from("appointments").update({
+          client_name: appt.clientName,
+          client_id: appt.clientId,
+          employee_id: appt.employeeId,
+          start_time: appt.startTime,
+          end_time: appt.endTime,
+          status: appt.status,
+          total_price: appt.totalPrice,
+          notes: appt.notes,
+          payment_status: appt.paymentStatus,
+          group_id: appt.groupId,
+          services: appt.services,
+        }).eq("id", id);
+        const idx = cache.appointments.findIndex(a => a.id === id);
+        if (idx !== -1) cache.appointments[idx] = appt;
+      }
+    }
+
+    window.dispatchEvent(new Event("appointments_updated"));
+  },
 };
 
 // ─── Cash Sessions ───────────────────────────────────────
