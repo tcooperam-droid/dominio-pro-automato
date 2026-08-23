@@ -10,13 +10,18 @@ import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Plus, Calendar, CalendarDays, RefreshCw, Clock, Link2, Search, Undo2, Redo2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Calendar, CalendarDays, RefreshCw, Clock, Link2, Search, Undo2, Redo2, Lock, Trash2 } from "lucide-react";
 import { Calendar as CalendarUI } from "@/components/ui/calendar";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import AppointmentModal from "@/components/AppointmentModal";
 import { cn } from "@/lib/utils";
 import {
   employeesStore, servicesStore, appointmentsStore, fetchAllData,
+  TIME_BLOCK_MARKER, isTimeBlock,
   type Appointment,
 } from "@/lib/store";
 
@@ -64,6 +69,144 @@ const STATUS_BORDER: Record<string, string> = {
   no_show:     "border-l-gray-400",
 };
 
+function blockReason(appt: Appointment): string {
+  return appt.notes?.slice(TIME_BLOCK_MARKER.length).replace(/^\|/, "") || "Horário bloqueado";
+}
+
+function TimeBlockModal({
+  open, onClose, employees, selectedDate, block, onSuccess,
+}: {
+  open: boolean;
+  onClose: () => void;
+  employees: { id: number; name: string }[];
+  selectedDate: string;
+  block?: Appointment | null;
+  onSuccess: () => void;
+}) {
+  const [employeeId, setEmployeeId] = useState("");
+  const [date, setDate] = useState(selectedDate);
+  const [start, setStart] = useState("12:00");
+  const [end, setEnd] = useState("13:00");
+  const [reason, setReason] = useState("Almoço");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setEmployeeId(String(block?.employeeId ?? employees[0]?.id ?? ""));
+    setDate(block?.startTime.slice(0, 10) ?? selectedDate);
+    setStart(block ? format(new Date(block.startTime), "HH:mm") : "12:00");
+    setEnd(block ? format(new Date(block.endTime), "HH:mm") : "13:00");
+    setReason(block ? blockReason(block) : "Almoço");
+  }, [open, block, selectedDate, employees]);
+
+  const save = async () => {
+    if (!employeeId || !date || !start || !end || !reason.trim()) {
+      toast.error("Preencha profissional, horário e motivo.");
+      return;
+    }
+    const startDate = new Date(`${date}T${start}:00`);
+    const endDate = new Date(`${date}T${end}:00`);
+    if (endDate <= startDate) {
+      toast.error("O horário final deve ser depois do inicial.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        clientName: `⏸ ${reason.trim()}`,
+        clientId: null,
+        employeeId: Number(employeeId),
+        startTime: startDate.toISOString(),
+        endTime: endDate.toISOString(),
+        status: "cancelled" as const,
+        totalPrice: 0,
+        notes: `${TIME_BLOCK_MARKER}|${reason.trim()}`,
+        paymentStatus: null,
+        groupId: null,
+        services: [],
+      };
+      if (block) await appointmentsStore.update(block.id, payload);
+      else await appointmentsStore.create(payload);
+      toast.success(block ? "Bloqueio actualizado!" : "Horário reservado!");
+      onSuccess();
+    } catch (error) {
+      console.error(error);
+      toast.error("Não foi possível guardar o bloqueio.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!block) return;
+    setSaving(true);
+    try {
+      await appointmentsStore.delete(block.id);
+      toast.success("Bloqueio removido.");
+      onSuccess();
+    } catch {
+      toast.error("Não foi possível remover o bloqueio.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={value => !value && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Lock className="w-4 h-4 text-primary" />
+            {block ? "Editar horário reservado" : "Reservar horário"}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 py-2">
+          <div className="grid gap-2">
+            <Label>Profissional</Label>
+            <Select value={employeeId} onValueChange={setEmployeeId}>
+              <SelectTrigger><SelectValue placeholder="Escolha o profissional" /></SelectTrigger>
+              <SelectContent>
+                {employees.map(employee => (
+                  <SelectItem key={employee.id} value={String(employee.id)}>{employee.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="grid gap-2">
+              <Label>Data</Label>
+              <Input type="date" value={date} onChange={event => setDate(event.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Início</Label>
+              <Input type="time" value={start} onChange={event => setStart(event.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Fim</Label>
+              <Input type="time" value={end} onChange={event => setEnd(event.target.value)} />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label>Motivo</Label>
+            <Input value={reason} onChange={event => setReason(event.target.value)} placeholder="Almoço, médico, compromisso..." />
+          </div>
+        </div>
+        <DialogFooter className="flex-col-reverse sm:flex-row sm:justify-between">
+          {block ? (
+            <Button variant="destructive" onClick={remove} disabled={saving} className="gap-2">
+              <Trash2 className="w-3.5 h-3.5" /> Remover
+            </Button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+            <Button onClick={save} disabled={saving}>{saving ? "A guardar..." : "Guardar"}</Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── AppointmentBlock ─────────────────────────────────────────────────────────
 const LONG_PRESS_MS = 500;
 
@@ -71,6 +214,7 @@ const AppointmentBlock = memo(function AppointmentBlock({
   appt,
   color,
   isGrouped,
+  isBlocked,
   onClick,
   onDragStart,
   startHour,
@@ -78,6 +222,7 @@ const AppointmentBlock = memo(function AppointmentBlock({
   appt: Appointment;
   color: string;
   isGrouped: boolean;
+  isBlocked: boolean;
   onClick: () => void;
   onDragStart: (appt: Appointment, y: number, x: number) => void;
   startHour: number;
@@ -173,13 +318,19 @@ const AppointmentBlock = memo(function AppointmentBlock({
       }}
       className={cn(
         "rounded-md px-2 py-1 cursor-grab active:cursor-grabbing select-none overflow-hidden",
+        isBlocked && "cursor-pointer border-dashed",
         "hover:brightness-110 transition-all",
         STATUS_BORDER[appt.status] ?? "border-l-gray-400"
       )}
     >
       <div className="flex items-center gap-1">
         {/* Se tem exatamente 1 serviço, mostra o nome do serviço em destaque */}
-        {appt.services?.length === 1 ? (
+        {isBlocked ? (
+          <p className="text-xs font-semibold truncate flex-1 text-amber-300">
+            <Lock className="w-3 h-3 inline mr-1" />
+            {blockReason(appt)}
+          </p>
+        ) : appt.services?.length === 1 ? (
           <p className="text-xs font-semibold truncate flex-1" style={{ color }}>
             {appt.services[0].name}
           </p>
@@ -193,18 +344,18 @@ const AppointmentBlock = memo(function AppointmentBlock({
         )}
       </div>
       {/* Nome do cliente (secundário) */}
-      {height > 36 && (
+      {height > 36 && !isBlocked && (
         <p className="text-[10px] text-muted-foreground truncate leading-tight">
           {appt.clientName ?? "Sem nome"}
         </p>
       )}
-      {height > 52 && (
+      {height > 52 && !isBlocked && (
         <p className="text-xs text-muted-foreground flex items-center gap-0.5">
           <Clock className="w-2.5 h-2.5" />
           {format(start, "HH:mm")}–{format(end, "HH:mm")}
         </p>
       )}
-      {height > 70 && appt.totalPrice != null && (
+      {height > 70 && !isBlocked && appt.totalPrice != null && (
         <p className="text-xs text-muted-foreground">
           R$ {appt.totalPrice.toFixed(2)}
         </p>
@@ -283,6 +434,7 @@ const EmployeeColumn = memo(function EmployeeColumn({
             appt={appt}
             color={color}
             isGrouped={isGrouped}
+            isBlocked={isTimeBlock(appt)}
             onClick={() => onAppointmentClick(appt)}
             onDragStart={onDragStart}
             startHour={startHour}
@@ -399,6 +551,8 @@ export default function AgendaPage() {
   const [groupId, setGroupId]             = useState<string | undefined>();
   const [refreshKey, setRefreshKey]       = useState(0);
   const [refreshing, setRefreshing]       = useState(false);
+  const [blockModalOpen, setBlockModalOpen] = useState(false);
+  const [editingBlock, setEditingBlock] = useState<Appointment | null>(null);
 
   // ── Undo / Redo ──────────────────────────────────────────────────────────
   const undoStack     = useRef<Appointment[][]>([]);
@@ -695,11 +849,22 @@ export default function AgendaPage() {
   }, []);
 
   const openEdit = useCallback((appt: Appointment) => {
+    if (isTimeBlock(appt)) {
+      setEditingBlock(appt);
+      setBlockModalOpen(true);
+      return;
+    }
     capturePending();
     setEditingAppt(appt);
     setGroupClientName(undefined);
     setGroupId(undefined);
     setModalOpen(true);
+  }, [capturePending]);
+
+  const openNewBlock = useCallback(() => {
+    capturePending();
+    setEditingBlock(null);
+    setBlockModalOpen(true);
   }, [capturePending]);
 
   // Called from AppointmentModal when user clicks "Adicionar outro serviço"
@@ -814,6 +979,14 @@ export default function AgendaPage() {
           </Button>
           <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={refreshing} className="h-8 w-8" title="Atualizar">
             <RefreshCw className={cn("w-3 h-3", refreshing && "animate-spin")} />
+          </Button>
+          <Button
+            variant="outline" size="sm" onClick={openNewBlock}
+            className="gap-1 h-8 text-xs bg-transparent border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+            title="Reservar horário para almoço, médico ou outro motivo"
+          >
+            <Lock className="w-3 h-3" />
+            <span className="hidden md:inline">Bloquear horário</span>
           </Button>
           <Badge variant="secondary" className="text-xs hidden md:inline-flex">
             {completedCount}/{appointments.length}
@@ -930,6 +1103,19 @@ export default function AgendaPage() {
           setEditingAppt(null);
         }}
         onAddGroupService={openGroupAdd}
+      />
+      <TimeBlockModal
+        open={blockModalOpen}
+        onClose={() => { discardPending(); setBlockModalOpen(false); setEditingBlock(null); }}
+        employees={employees}
+        selectedDate={selectedDate}
+        block={editingBlock}
+        onSuccess={() => {
+          commitSnapshot();
+          setRefreshKey(k => k + 1);
+          setBlockModalOpen(false);
+          setEditingBlock(null);
+        }}
       />
     </div>
   );

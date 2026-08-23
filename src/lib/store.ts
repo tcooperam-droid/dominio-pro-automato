@@ -95,6 +95,12 @@ export interface Appointment {
   createdAt: string;
 }
 
+export const TIME_BLOCK_MARKER = "__DOMINIO_TIME_BLOCK__";
+
+export function isTimeBlock(appointment: Appointment): boolean {
+  return appointment.notes?.startsWith(TIME_BLOCK_MARKER) ?? false;
+}
+
 export interface CashSession {
   id: number;
   openedAt: string;
