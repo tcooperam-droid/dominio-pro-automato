@@ -3,7 +3,7 @@
  * Fonte de verdade: agenda (appointmentsStore). Despesas: expensesStore.
  * Realizado vs Projeção nunca se misturam.
  */
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   format, parseISO, subDays, subWeeks,
   startOfWeek, endOfWeek, startOfMonth, endOfMonth, addDays,
@@ -84,10 +84,23 @@ export default function FinanceiroDashboardPage() {
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodKey>("mes");
   const [futurePeriod, setFuturePeriod]     = useState<FuturePeriod>("semana");
   const [showInactive, setShowInactive]     = useState(false);
+  const [dataVersion, setDataVersion]       = useState(0);
 
-  const allAppts    = useMemo(() => appointmentsStore.list({}), []);
-  const employees   = useMemo(() => employeesStore.list(true), []);
-  const allExpenses = useMemo(() => expensesStore.list(), []);
+  useEffect(() => {
+    const refresh = () => setDataVersion(version => version + 1);
+    window.addEventListener("store_updated", refresh);
+    window.addEventListener("appointments_updated", refresh);
+    window.addEventListener("expenses_updated", refresh);
+    return () => {
+      window.removeEventListener("store_updated", refresh);
+      window.removeEventListener("appointments_updated", refresh);
+      window.removeEventListener("expenses_updated", refresh);
+    };
+  }, []);
+
+  const allAppts    = useMemo(() => appointmentsStore.list({}), [dataVersion]);
+  const employees   = useMemo(() => employeesStore.list(true), [dataVersion]);
+  const allExpenses = useMemo(() => expensesStore.list(), [dataVersion]);
 
   const now      = new Date();
   const todayStr = now.toISOString().slice(0, 10);

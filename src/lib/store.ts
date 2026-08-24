@@ -1346,6 +1346,7 @@ export const expensesStore = {
 
     const expense = toExpense(row);
     cache.expenses.unshift(expense);
+    window.dispatchEvent(new Event("expenses_updated"));
 
     return expense;
   },
@@ -1373,6 +1374,7 @@ export const expensesStore = {
     const idx = cache.expenses.findIndex(e => e.id === id);
 
     if (idx !== -1) cache.expenses[idx] = expense;
+    window.dispatchEvent(new Event("expenses_updated"));
 
     return expense;
   },
@@ -1381,6 +1383,7 @@ export const expensesStore = {
     await supabase.from("expenses").delete().eq("id", id);
 
     cache.expenses = cache.expenses.filter(e => e.id !== id);
+    window.dispatchEvent(new Event("expenses_updated"));
   },
 };
 
