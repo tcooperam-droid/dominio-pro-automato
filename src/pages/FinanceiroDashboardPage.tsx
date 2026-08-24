@@ -98,6 +98,21 @@ export default function FinanceiroDashboardPage() {
     };
   }, []);
 
+  // O carregamento global pode terminar antes ou depois de a página montar.
+  // Busca as despesas explicitamente para evitar que o lucro fique preso ao
+  // cache vazio do primeiro render em dispositivos móveis.
+  useEffect(() => {
+    let mounted = true;
+    expensesStore.fetchAll()
+      .then(() => {
+        if (mounted) setDataVersion(version => version + 1);
+      })
+      .catch(error => {
+        console.warn("[Financeiro] Não foi possível atualizar despesas:", error);
+      });
+    return () => { mounted = false; };
+  }, []);
+
   const allAppts    = useMemo(() => appointmentsStore.list({}), [dataVersion]);
   const employees   = useMemo(() => employeesStore.list(true), [dataVersion]);
   const allExpenses = useMemo(() => expensesStore.list(), [dataVersion]);
