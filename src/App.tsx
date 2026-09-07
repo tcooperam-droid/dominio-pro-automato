@@ -3,6 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, Redirect } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
+import AuthGate from "./components/AuthGate";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import DominioLayout from "./components/DominioLayout";
 import DashboardPage from "./pages/DashboardPage";
@@ -77,7 +78,7 @@ function AppContent() {
       <TooltipProvider>
         <Toaster position="top-center" richColors closeButton />
         <Switch>
-          {/* O acesso é directo; a rota antiga de login permanece compatível. */}
+          {/* A autenticação é feita pelo AuthGate antes desta árvore. */}
           <Route path="/login">
             <Redirect to="/dashboard" />
           </Route>
@@ -115,7 +116,9 @@ function AppContent() {
 function App() {
   return (
     <ErrorBoundary>
-      <AppContent />
+      <AuthGate>
+        <AppContent />
+      </AuthGate>
     </ErrorBoundary>
   );
 }

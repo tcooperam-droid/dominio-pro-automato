@@ -1,21 +1,9 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
-import { supabase } from "./lib/supabase";
 
-// Monta a interface imediatamente. A autenticação não pode bloquear o primeiro
-// render — no Android isso deixava o ecrã branco quando a rede demorava.
+// O AuthGate valida a sessão antes de montar a interface e carregar dados.
 createRoot(document.getElementById("root")!).render(<App />);
-
-// Inicializa a sessão em segundo plano para as operações do Supabase.
-supabase.auth.getSession().then(async ({ data: { session } }) => {
-  if (!session) {
-    const { error } = await supabase.auth.signInAnonymously();
-    if (error) console.warn("Supabase anonymous sign-in failed:", error.message);
-  }
-}).catch((err) => {
-  console.warn("Supabase bootstrap error:", err);
-});
 
 // ── Service Worker — detecta nova versão e recarrega automaticamente ──
 // Desabilitado em desenvolvimento para evitar cache de versões quebradas.
