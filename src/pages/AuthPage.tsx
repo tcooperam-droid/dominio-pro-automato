@@ -5,11 +5,14 @@ import { isAllowedWorkEmail } from "@/lib/authConfig";
 
 export default function AuthPage({ rejectedEmail }: { rejectedEmail?: string }) {
   const [email, setEmail] = useState("tcooperam@gmail.com");
+  const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
 
-  async function sendMagicLink() {
+  async function sendCode() {
     const normalized = email.trim().toLowerCase();
     setError("");
     setMessage("");
@@ -20,14 +23,37 @@ export default function AuthPage({ rejectedEmail }: { rejectedEmail?: string }) 
     setSending(true);
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: normalized,
-      options: { emailRedirectTo: window.location.origin },
+      options: { shouldCreateUser: true },
     });
     setSending(false);
     if (authError) {
       setError(authError.message);
       return;
     }
-    setMessage("Link enviado. Verifique a caixa de entrada e abra o link neste dispositivo.");
+    setCodeSent(true);
+    setMessage("Código enviado. Verifique seu e-mail e digite o código abaixo.");
+  }
+
+  async function verifyCode() {
+    const normalized = email.trim().toLowerCase();
+    setError("");
+    setMessage("");
+    if (!isAllowedWorkEmail(normalized) || !/^\d{6}$/.test(code.trim())) {
+      setError("Digite o código de 6 números recebido por e-mail.");
+      return;
+    }
+    setVerifying(true);
+    const { error: authError } = await supabase.auth.verifyOtp({
+      email: normalized,
+      token: code.trim(),
+      type: "email",
+    });
+    setVerifying(false);
+    if (authError) {
+      setError("Código inválido ou expirado. Solicite um novo código.");
+      return;
+    }
+    setMessage("Acesso confirmado. Carregando o aplicativo...");
   }
 
   return (
@@ -38,7 +64,7 @@ export default function AuthPage({ rejectedEmail }: { rejectedEmail?: string }) 
         </div>
         <h1 className="text-center text-2xl font-bold">Acesso de trabalho</h1>
         <p className="mt-2 text-center text-sm text-white/50">
-          O Domínio Pro Automato agora exige autenticação por e-mail.
+          Receba um código e confirme o acesso diretamente neste dispositivo.
         </p>
         {rejectedEmail && (
           <p className="mt-4 rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-200">
@@ -53,22 +79,59 @@ export default function AuthPage({ rejectedEmail }: { rejectedEmail?: string }) 
             onChange={event => setEmail(event.target.value)}
             type="email"
             autoComplete="email"
-            className="w-full bg-transparent py-3 text-sm outline-none"
+            disabled={codeSent}
+            className="w-full bg-transparent py-3 text-sm outline-none disabled:opacity-60"
             placeholder="seu@email.com"
           />
         </div>
+        {codeSent && (
+          <>
+            <label className="mt-5 block text-xs font-semibold uppercase tracking-wider text-white/50">Código de 6 números</label>
+            <input
+              value={code}
+              onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              autoFocus
+              className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-center text-xl tracking-[0.4em] outline-none"
+              placeholder="000000"
+            />
+          </>
+        )}
         {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
         {message && <p className="mt-3 text-sm text-emerald-300">{message}</p>}
-        <button
-          type="button"
-          onClick={() => void sendMagicLink()}
-          disabled={sending}
-          className="mt-5 w-full rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:cursor-wait disabled:opacity-60"
-        >
-          {sending ? "Enviando link..." : "Enviar link de acesso"}
-        </button>
+        {!codeSent ? (
+          <button
+            type="button"
+            onClick={() => void sendCode()}
+            disabled={sending}
+            className="mt-5 w-full rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:cursor-wait disabled:opacity-60"
+          >
+            {sending ? "Enviando código..." : "Enviar código por e-mail"}
+          </button>
+        ) : (
+          <div className="mt-5 flex gap-2">
+            <button
+              type="button"
+              onClick={() => void verifyCode()}
+              disabled={verifying || code.length !== 6}
+              className="flex-1 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {verifying ? "Confirmando..." : "Confirmar código"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setCodeSent(false); setCode(""); setMessage(""); setError(""); }}
+              className="rounded-xl border border-white/10 px-4 py-3 text-sm text-white/70"
+            >
+              Novo código
+            </button>
+          </div>
+        )}
         <p className="mt-5 text-center text-xs leading-relaxed text-white/35">
-          Nenhuma senha é armazenada neste aplicativo. O link é temporário e a sessão fica vinculada ao Supabase.
+          O código é temporário e a sessão fica vinculada ao Supabase neste dispositivo.
         </p>
       </section>
     </main>
