@@ -11,6 +11,15 @@ export default function AuthPage({ rejectedEmail }: { rejectedEmail?: string }) 
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
+  const [cooldown, setCooldown] = useState(false);
+
+  function describeAuthError(rawMessage: string) {
+    const normalized = rawMessage.toLowerCase();
+    if (normalized.includes("rate limit") || normalized.includes("too many")) {
+      return "O limite de envio de e-mails do Supabase foi atingido. Aguarde alguns minutos antes de solicitar outro código; não é erro da sua conta.";
+    }
+    return rawMessage;
+  }
 
   async function sendCode() {
     const normalized = email.trim().toLowerCase();
@@ -20,6 +29,12 @@ export default function AuthPage({ rejectedEmail }: { rejectedEmail?: string }) 
       setError("Este acesso está reservado ao e-mail autorizado do trabalho.");
       return;
     }
+    if (cooldown) {
+      setError("Aguarde alguns segundos antes de solicitar outro código.");
+      return;
+    }
+    setCooldown(true);
+    window.setTimeout(() => setCooldown(false), 60_000);
     setSending(true);
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: normalized,
@@ -27,7 +42,7 @@ export default function AuthPage({ rejectedEmail }: { rejectedEmail?: string }) 
     });
     setSending(false);
     if (authError) {
-      setError(authError.message);
+      setError(describeAuthError(authError.message));
       return;
     }
     setCodeSent(true);
@@ -106,10 +121,10 @@ export default function AuthPage({ rejectedEmail }: { rejectedEmail?: string }) 
           <button
             type="button"
             onClick={() => void sendCode()}
-            disabled={sending}
+            disabled={sending || cooldown}
             className="mt-5 w-full rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:cursor-wait disabled:opacity-60"
           >
-            {sending ? "Enviando código..." : "Enviar código por e-mail"}
+            {sending ? "Enviando código..." : cooldown ? "Aguarde para tentar novamente" : "Enviar código por e-mail"}
           </button>
         ) : (
           <div className="mt-5 flex gap-2">
