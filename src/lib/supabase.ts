@@ -14,11 +14,6 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Garante sessão anônima antes de qualquer query.
-// Exportado para que o app possa aguardar antes de carregar dados.
-export const sessionReady: Promise<void> = (async () => {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) {
-    await supabase.auth.signInAnonymously();
-  }
-})();
+// O aplicativo só acessa dados depois que AuthGate valida uma sessão
+// autenticada com o e-mail autorizado. Não criar sessões anônimas aqui:
+// elas não representam uma identidade confiável e enfraquecem o RLS.

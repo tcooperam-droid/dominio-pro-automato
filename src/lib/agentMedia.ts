@@ -16,17 +16,8 @@ function getToken(): string {
   const envToken = import.meta.env.VITE_GITHUB_TOKEN as string | undefined;
   if (envToken) return envToken;
 
-  // 2. Runtime fallback: user-configured token stored in localStorage
-  try {
-    const saved = localStorage.getItem("salon_config");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed.githubToken) return parsed.githubToken as string;
-    }
-  } catch {}
-
   throw new Error(
-    "GitHub token não configurado. Acesse Configurações → Agente IA e insira seu token.",
+    "GitHub token não configurado no ambiente seguro do servidor.",
   );
 }
 

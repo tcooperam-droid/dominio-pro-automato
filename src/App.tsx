@@ -43,15 +43,14 @@ function AppContent() {
     const initAgent = () => {
       try {
         let salonName = "Domínio Pro";
-        // Prefer env var, but allow user-supplied token from localStorage to override
+        // O token nunca é lido do localStorage: segredos persistidos no
+        // navegador podem ser extraídos por extensões ou XSS.
         let githubToken = (import.meta.env.VITE_GITHUB_TOKEN as string) ?? "";
         try {
           const saved = localStorage.getItem("salon_config");
           if (saved) {
             const parsed = JSON.parse(saved);
             salonName = parsed.salonName || salonName;
-            // User-configured token takes priority over build-time env var
-            if (parsed.githubToken) githubToken = parsed.githubToken;
           }
         } catch {}
 

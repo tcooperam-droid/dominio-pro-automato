@@ -178,7 +178,10 @@ export default function ConfiguracoesPage() {
   const handleSave = () => {
     setLoading(true);
     try {
-      localStorage.setItem("salon_config", JSON.stringify(config));
+      // Tokens são credenciais e não devem sobreviver no armazenamento do
+      // navegador. Também remove tokens gravados por versões anteriores.
+      const { githubToken: _discardedToken, ...safeConfig } = config;
+      localStorage.setItem("salon_config", JSON.stringify(safeConfig));
       // Dispara evento para o SalaoLayout atualizar sem precisar recarregar
       window.dispatchEvent(new Event("salon_config_updated"));
       toast.success("Configurações salvas!");
