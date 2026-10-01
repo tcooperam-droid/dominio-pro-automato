@@ -4,7 +4,7 @@
  * Suporta groupId para agrupar serviços do mesmo cliente.
  * INTEGRADO: Busca de clientes no clientsStore e criação de novos clientes.
  */
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { format, addMinutes, parseISO } from "date-fns";
 import { safeFmt } from "@/lib/utils";
@@ -91,6 +91,7 @@ export default function AppointmentModal({
   const [notes, setNotes]                       = useState("");
   const [selectedServices, setSelectedServices] = useState<SelectedService[]>([]);
   const [loading, setLoading]                   = useState(false);
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   const employees = useMemo(() => employeesStore.list(true), [open]);
   const servicesData = useMemo(() => servicesStore.list(true), [open]);
@@ -138,6 +139,18 @@ export default function AppointmentModal({
     const start  = new Date(2000, 0, 1, h, m);
     return format(addMinutes(start, totalDuration), "HH:mm");
   }, [startTime, totalDuration]);
+
+  // Em alguns WebViews/Android, tocar em um input[type=date] apenas seleciona
+  // um segmento da data e não abre o calendário nativo. showPicker() mantém o
+  // campo controlado pelo React e abre o seletor dentro do gesto do usuário.
+  const openDatePicker = () => {
+    const input = dateInputRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
+    try {
+      input?.showPicker?.();
+    } catch {
+      // Navegadores sem showPicker continuam usando o comportamento padrão.
+    }
+  };
 
   // Populate form when modal opens
   useEffect(() => {
@@ -651,7 +664,15 @@ export default function AppointmentModal({
             </div>
             <div className="space-y-1">
               <Label>Data *</Label>
-              <Input type="date" value={apptDate} onChange={e => setApptDate(e.target.value)} />
+              <Input
+                ref={dateInputRef}
+                type="date"
+                value={apptDate}
+                onChange={e => setApptDate(e.target.value)}
+                onPointerDown={openDatePicker}
+                onClick={openDatePicker}
+                aria-label="Escolher data do agendamento"
+              />
             </div>
             <div className="space-y-1 col-span-2">
               <Label>Horário de início *</Label>
